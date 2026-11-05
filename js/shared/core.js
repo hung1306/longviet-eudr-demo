@@ -2,38 +2,130 @@
  * Lõi nghiệp vụ EUDR: lưu dữ liệu, nhật ký, kiểm tra GeoJSON, đánh giá rủi ro, phả hệ và gói dữ liệu DDS.
  * Không phụ thuộc giao diện để có thể kiểm thử riêng.
  */
-const STORE_KEY = 'longviet-eudr-v3';
+const STORE_KEY = 'ecotech2a-wood-v4';
 const STAGES = ['May ghép ván', 'Lăn keo & xếp lớp', 'Ép nguội & vá', 'Ép nóng', 'Bả bột & chà nhám', 'Cắt cạnh', 'KCS đèn soi'];
 /** Máy và thông số bắt buộc từng công đoạn. Nhiệt độ ép nóng 110-130°C và dung sai độ dày ±0.3 mm theo khảo sát nhà máy. */
 const STAGE_SPECS = [
-    { machines: ['MC-ZICZAC-01'], outLabel: 'Tấm lõi may ra', params: [] },
-    { machines: ['MC-GLUE-02'], outLabel: 'Phôi xếp lớp ra', params: [{ key: 'glue', label: 'Định mức keo (g/m²)', min: 1 }] },
-    { machines: ['MC-COLD-01'], outLabel: 'Phôi sau ép nguội', params: [{ key: 'pressure', label: 'Áp suất (kg/cm²)', min: 1 }, { key: 'minutes', label: 'Thời gian ép (phút)', min: 1 }, { key: 'patches', label: 'Số mắt vá', min: 0 }], patchLot: true },
-    { machines: ['MC-HOTPRESS-01'], outLabel: 'Tấm sau ép nóng', params: [{ key: 'temp', label: 'Nhiệt độ (°C)', min: 110, max: 130 }, { key: 'bar', label: 'Áp suất (bar)', min: 1 }, { key: 'minutes', label: 'Thời gian (phút/mẻ)', min: 1 }] },
-    { machines: ['MC-SANDER-03'], outLabel: 'Tấm sau chà nhám', params: [{ key: 'thickness', label: 'Độ dày đo được (mm)', min: 0.1, thickness: true }] },
-    { machines: ['MC-TRIM-02'], outLabel: 'Tấm sau cắt cạnh', params: [{ key: 'scrapKg', label: 'Phế liệu (kg)', min: 0 }], scrap: true },
-    { machines: ['Đèn soi góc nghiêng'], outLabel: 'Hạng A đạt xuất', params: [], qc: true }
+    {
+        ccp: 'CCP-1',
+        ccpName: 'Kiểm soát chống trộn phôi lõi',
+        ccpRule: 'Chống lẫn nguồn (Anti-mixing Segregation)',
+        ccpControl: 'Chỉ nhận phôi từ Ô kho Khu A đã cấp phát trong Lệnh SX',
+        mixingRisk: 'Thợ may lấy nhầm lá ván rách hoặc phôi phế thải tồn lưu từ mẻ Non-EU trước đó đan xen vào cuộn ván cho đơn EU.',
+        antiMixingRule: 'Quét mã QR từng kiện trước khi đưa lên bàn máy may; vệ sinh sạch phôi vụn bàn máy trước khi chuyển lệnh.',
+        consequence: 'Toàn bộ cuộn ván bị nhiễm nguồn không rõ, hủy quyền xuất khẩu EU.',
+        machines: ['MC-ZICZAC-01'],
+        outLabel: 'Tấm lõi may ra',
+        params: []
+    },
+    {
+        ccp: 'CCP-2',
+        ccpName: 'Kiểm soát phát thải keo & xếp lớp',
+        ccpRule: 'Tiêu chuẩn phát thải thấp CARB P2 / E0',
+        ccpControl: 'Định mức tráng keo 280-320 g/m², xếp lớp đối xứng thớ gỗ dọc-ngang',
+        mixingRisk: 'Công nhân tự ý chèn thêm lá ván độn ngoài danh mục BoM để bù chiều dày thiếu, hoặc dùng sai loại keo Urea giá rẻ.',
+        antiMixingRule: 'Cân kiểm tra tải trọng xếp lớp; đếm đúng số lớp (plies) theo BoM; kiểm tra định mức keo 300-340 g/m² hai mặt.',
+        consequence: 'Làm sai lệch tỷ lệ thu hồi phôi (mass balance), ván bị nứt tách tầng khi kiểm định.',
+        machines: ['MC-GLUE-02'],
+        outLabel: 'Phôi xếp lớp ra',
+        params: [{ key: 'glue', label: 'Định mức keo (g/m²)', min: 1 }]
+    },
+    {
+        ccp: 'CCP-3',
+        ccpName: 'Kiểm soát phôi vá & định hình (NGUY CƠ CAO)',
+        ccpRule: 'Truy xuất nguồn gốc veneer vá (Patch Lineage)',
+        ccpControl: 'Áp suất 80-120 kg/cm², veneer vá bắt buộc thuộc lô nguồn trong lệnh',
+        mixingRisk: 'NGUY CƠ CAO NHẤT: Khi thấy khuyết tật/mắt chết, thợ vá nhặt bừa mảnh ván vụn ngoài xưởng (Non-EU) dán vào ván xuất EU!',
+        antiMixingRule: 'BẮT BUỘC miếng vá (veneer patch) phải lấy từ chính lô ván mặt/ruột cùng mã truy xuất (RC-W...). Khay miếng vá có nhãn mã lô.',
+        consequence: 'Vi phạm Điều 9 EUDR (chứa gỗ không rõ tọa độ), lô hàng bị hải quan EU tịch thu.',
+        machines: ['MC-COLD-01'],
+        outLabel: 'Phôi sau ép nguội',
+        params: [
+            { key: 'pressure', label: 'Áp suất (kg/cm²)', min: 1 },
+            { key: 'minutes', label: 'Thời gian ép (phút)', min: 1 },
+            { key: 'patches', label: 'Số mắt vá', min: 0 }
+        ],
+        patchLot: true
+    },
+    {
+        ccp: 'CCP-4',
+        ccpName: 'Kiểm soát nhiệt ép hóa rắn keo vĩnh cửu',
+        ccpRule: 'Chốt chặn công nghệ ép nóng (Thermal Cure)',
+        ccpControl: 'Nhiệt độ thớt ép 110-130°C, áp suất thủy lực, thời gian mẻ đủ tiêu chuẩn',
+        mixingRisk: 'Ép gộp lẫn lộn giữa mẻ ván EU và mẻ ván nội địa trên cùng các tầng ép đa tầng 15 tầng.',
+        antiMixingRule: 'Mỗi mẻ ép (Press Batch) chỉ chứa sản phẩm của DUY NHẤT 1 Lệnh SX; cài đặt cảm biến nhiệt độ ≥ 120°C, áp suất ≥ 120 bar.',
+        consequence: 'Trộn lẫn mẻ ép làm mất tính phả hệ đơn chiếc của lô thành phẩm.',
+        machines: ['MC-HOTPRESS-01'],
+        outLabel: 'Tấm sau ép nóng',
+        params: [
+            { key: 'temp', label: 'Nhiệt độ (°C)', min: 110, max: 130 },
+            { key: 'bar', label: 'Áp suất (bar)', min: 1 },
+            { key: 'minutes', label: 'Thời gian (phút/mẻ)', min: 1 }
+        ]
+    },
+    {
+        ccp: 'CCP-5',
+        ccpName: 'Kiểm soát dung sai chiều dày & độ ẩm',
+        ccpRule: 'Tiêu chuẩn kích thước & bả trám hữu cơ',
+        ccpControl: 'Dung sai độ dày đo 6 điểm ±0.3 mm so với quy cách, độ ẩm tấm ≤ 10%',
+        mixingRisk: 'Dùng bột bả trám có hóa chất cấm ngoài danh mục REACH của EU, hoặc mài lẹm làm phơi lớp keo.',
+        antiMixingRule: 'Chỉ dùng bột bả trám hữu cơ REACH Compliant; đo độ dày 6 điểm kiểm tra dung sai ±0.3 mm.',
+        consequence: 'Không đạt tiêu chuẩn kỹ thuật nhập khẩu EN 314-2.',
+        machines: ['MC-SANDER-03'],
+        outLabel: 'Tấm sau chà nhám',
+        params: [
+            { key: 'thickness', label: 'Độ dày đo được (mm)', min: 0.1, thickness: true }
+        ]
+    },
+    {
+        ccp: 'CCP-6',
+        ccpName: 'Kiểm soát phế liệu & dăm gỗ cắt biên',
+        ccpRule: 'Cân đối phế liệu (Scrap Mass Balance)',
+        ccpControl: 'Cân số kg phế liệu biên, tái chế làm chân pallet có mã lô gốc hoặc bán dăm ngoài EU',
+        mixingRisk: 'Đầu mẩu cắt biên phế phẩm của ván Non-EU bị băm nhỏ rồi tái trộn vào ván ép khối/ván dăm xuất EU.',
+        antiMixingRule: 'Đầu mẩu cắt biên phải chuyển thẳng sang silo băm làm củi đốt lò hơi hoặc chân pallet; cấm quay lại dây chuyền ép mặt.',
+        consequence: 'Làm sai lệch tỷ lệ thu hồi phôi (mass balance) dẫn đến cảnh báo đỏ trên Cổng TRACES-NT.',
+        machines: ['MC-TRIM-02'],
+        outLabel: 'Tấm sau cắt cạnh',
+        params: [
+            { key: 'scrapKg', label: 'Phế liệu (kg)', min: 0 }
+        ],
+        scrap: true
+    },
+    {
+        ccp: 'CCP-7',
+        ccpName: 'KCS phân hạng & Gắn tem QR phả hệ',
+        ccpRule: 'Cách ly thành phẩm & Cân bằng khối lượng',
+        ccpControl: 'Tách riêng Hạng A xuất EU, Hạng B/C bán nội địa. Tỷ lệ thu hồi 80-92%',
+        mixingRisk: 'Dán nhầm tem QR đơn EU vào kiện pallet hàng nội địa, hoặc đóng chung pallet lẫn lộn phẩm cấp.',
+        antiMixingRule: 'Soi đèn góc nghiêng 100% tấm; đóng đai chuẩn ISPM 15 có mã hun trùng HT; in tem QR truy xuất phả hệ gắn chặt góc pallet.',
+        consequence: 'Khách hàng EU từ chối nhận hàng, bị phạt vi phạm quy chế EUDR lên tới 4% doanh thu hàng năm.',
+        machines: ['Đèn soi góc nghiêng'],
+        outLabel: 'Hạng A đạt xuất',
+        params: [],
+        qc: true
+    }
 ];
 const SCRAP_USES = ['Băm làm chân pallet, giữ mã lô gốc', 'Dùng lại trong lệnh này, giữ mã lô gốc', 'Không rõ lô: chỉ bán ngoài EU'];
 const SHIFTS = ['Ca 1', 'Ca 2', 'Ca 3'];
 
 const ROLES = {
-    kho: 'Kho nguyên liệu',
-    sanxuat: 'Sản xuất',
-    kinhdoanh: 'Kinh doanh XK',
-    tuanthu: 'Tuân thủ EUDR',
-    quantri: 'Quản trị'
+    kinhdoanh: 'Kinh doanh xuất khẩu',
+    sanxuat: 'Quản đốc sản xuất',
+    kho: 'Thủ kho nguyên liệu',
+    tuanthu: 'KCS & Tuân thủ EUDR',
+    quantri: 'Quản trị hệ thống'
 };
 const PERMS = {
-    supplier: ['tuanthu'],
-    plot: ['tuanthu', 'kho'],
-    forest: ['tuanthu'],
-    receipt: ['kho'],
-    approve: ['tuanthu'],
-    workorder: ['sanxuat'],
-    pallet: ['sanxuat', 'kho'],
-    order: ['kinhdoanh'],
-    drill: ['tuanthu'],
+    supplier: ['tuanthu', 'kinhdoanh', 'quantri'],
+    plot: ['tuanthu', 'kho', 'quantri'],
+    forest: ['tuanthu', 'quantri'],
+    receipt: ['kho', 'tuanthu', 'quantri'],
+    approve: ['tuanthu', 'quantri'],
+    workorder: ['sanxuat', 'quantri'],
+    pallet: ['sanxuat', 'kho', 'quantri'],
+    order: ['kinhdoanh', 'quantri'],
+    drill: ['tuanthu', 'quantri'],
     config: ['quantri']
 };
 const LEVEL_RANK = { LOW: 0, MEDIUM: 1, HIGH: 2 };
@@ -59,9 +151,14 @@ function resetDB() {
     return loadDB();
 }
 
-function currentRole() { return storage.getItem('longviet-role') || 'tuanthu'; }
-function setRole(role) { storage.setItem('longviet-role', role); }
-function can(perm) { return (PERMS[perm] || []).includes(currentRole()); }
+/** Bản demo không có đăng nhập: dùng một vai trò đủ quyền. */
+function currentRole() { return 'quantri'; }
+function setRole(role) { storage.setItem('ecotech2a-role', role); }
+function can(perm) {
+    const role = currentRole();
+    if (role === 'quantri') return true;
+    return (PERMS[perm] || []).includes(role);
+}
 function rolesFor(perm) { return (PERMS[perm] || []).map(r => ROLES[r]).join(' hoặc '); }
 
 function todayISO() {
@@ -100,7 +197,7 @@ function verifyAudit() {
 }
 
 // ---------- Tra cứu ----------
-const byId = (list, id) => list.find(x => x.id === id);
+const byId = (list, id) => (list || []).find(x => x.id === id);
 const getSupplier = id => byId(DB.suppliers, id);
 const getPlot = id => byId(DB.plots, id);
 const getReceipt = id => byId(DB.receipts, id);
@@ -108,6 +205,12 @@ const getPackage = id => byId(DB.packages, id);
 const getWO = id => byId(DB.workOrders, id);
 const getPallet = id => byId(DB.pallets, id);
 const getOrder = id => byId(DB.orders, id);
+const getFarmer = id => byId(DB.farmers, id);
+const getMachine = id => byId(DB.machines, id);
+const getBay = id => byId(DB.warehouseBays, id);
+const getProvince = id => byId(DB.provinces, id);
+const getDistrict = id => byId(DB.districts, id);
+const getWard = id => byId(DB.wards, id);
 const uniq = list => [...new Set(list)];
 const sum = (list, fn) => list.reduce((s, x) => s + fn(x), 0);
 const round = (n, d = 2) => +Number(n).toFixed(d);
