@@ -1,0 +1,73 @@
+.pxh {
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    color: #fff;
+    font-family: 'Be Vietnam Pro', sans-serif;
+    background: url('/img/portal-bg.png') center / 100% 100% no-repeat #0a2e22;
+}
+.pxh-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 18px 32px; text-shadow: 0 1px 6px rgba(0, 0, 0, .7); }
+.pxh-brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 20px; letter-spacing: .02em; }
+.pxh-logo { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: #009b5c; font-size: 20px; box-shadow: 0 4px 12px rgba(0, 0, 0, .3); }
+.pxh-main { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 1180px; margin: 0 auto; padding: 24px 32px 48px; }
+.pxh-panel { background: linear-gradient(135deg, rgba(10, 58, 42, .94), rgba(16, 84, 58, .9)); border: 1px solid rgba(255, 255, 255, .25); border-radius: 20px; padding: 24px; box-shadow: 0 16px 40px rgba(0, 0, 0, .45); }
+.pxh-title { font-family: 'Lora', serif; font-size: clamp(20px, 2.2vw, 26px); font-weight: 600; margin-bottom: 18px; }
+.pxh-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.pxh-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 26px 24px;
+    border-radius: 16px;
+    color: #fff;
+    text-decoration: none;
+    font-size: 22px;
+    font-weight: 700;
+    border: 1px solid rgba(255, 255, 255, .28);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .35);
+    transition: transform .15s, filter .15s;
+}
+.pxh-card:hover, .pxh-card:focus-visible { color: #fff; transform: translateY(-4px); filter: brightness(1.12); }
+.pxh-card i.pxh-ico { font-size: 30px; width: 40px; text-align: center; }
+.pxh-card i.go { margin-left: auto; font-size: 18px; opacity: .85; }
+.pxh-industries { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.pxh-chip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .08); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+.pxh-chip:hover { background: rgba(255, 255, 255, .18); }
+.pxh-chip[aria-pressed="true"] { background: #fff; border-color: #fff; color: #0f5c3c; }
+.pxh-extra { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 16px; }
+.pxh-extra a { color: #fff; font-size: 14px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+.pxh-extra a:hover { text-decoration: underline; }
+.pxh-factory { background: linear-gradient(135deg, #1f8a5b, #0f5c3c); }
+.pxh-map { background: linear-gradient(135deg, #1f8a8a, #11575a); }
+.pxh-admin { background: linear-gradient(135deg, #2e5f73, #173c4c); }
+@media (max-width: 767.98px) {
+    .pxh { height: auto; min-height: 100vh; overflow: visible; background-size: cover; }
+    .pxh-top { padding: 14px 16px; }
+    .pxh-main { padding: 24px 16px 32px; }
+    .pxh-cards { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .pxh-card { transition: none; }
+    .pxh-card:hover { transform: none; }
+}
+
+/* Căn giữa, nổi bật */
+.pxh { background-size: cover; position: relative; }
+.pxh::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(20, 30, 22, .35), rgba(12, 20, 14, .72)); pointer-events: none; }
+.pxh > * { position: relative; }
+.pxh-main { justify-content: center; align-items: center; max-width: 1040px; padding-bottom: 32px; }
+.pxh-panel { width: 100%; text-align: center; padding: 36px 40px 30px; background: rgba(24, 42, 30, .72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(94, 234, 212, .35); border-radius: 24px; }
+.pxh-panel::before { content: "Truy xuất nguồn gốc gỗ theo EUDR"; display: block; font-family: 'Lora', serif; font-size: clamp(26px, 3.4vw, 40px); font-weight: 700; margin-bottom: 6px; }
+.pxh-panel::after { content: ""; display: block; width: 72px; height: 3px; margin: 0 auto; background: #5eead4; border-radius: 2px; order: -1; }
+.pxh-title { font-size: 15px; font-family: 'Be Vietnam Pro', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: #5eead4; margin: 22px 0 12px; }
+.pxh-industries { justify-content: center; margin-bottom: 4px; }
+.pxh-chip[aria-pressed="true"] { background: #5eead4; border-color: #5eead4; color: #18241f; }
+.pxh-cards { gap: 16px; }
+.pxh-card { justify-content: center; padding: 22px; font-family: 'Lora', serif; font-size: 22px; }
+.pxh-card i.go { margin-left: 0; }
+.pxh-factory { background: linear-gradient(135deg, #2f6b4a, #1e3a2c); }
+.pxh-map { background: linear-gradient(135deg, #14857a, #0f5e55); }
+.pxh-admin { background: linear-gradient(135deg, #3d5a66, #22363f); }
+.pxh-extra { justify-content: center; margin-top: 20px; }
+.pxh-top { justify-content: center; }
