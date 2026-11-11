@@ -7,7 +7,11 @@ import {
 import {
     DB,
     byId,
+    assessContract,
     countryRisk,
+    getContract,
+    supplierStanding,
+    usableContracts,
     getReceipt,
     getSupplier,
     logAction,
@@ -59,10 +63,14 @@ export function poChecks(po) {
     const s = getSupplier(po.supplierId) || {};
     const plots = DB.plots.filter(p => p.supplierId === po.supplierId && p.species === po.species && p.country === po.originCountry);
     const clear = plots.filter(p => p.forest && p.forest.result === 'CLEAR');
-    const contractOk = !!s.contractExpiry && s.contractExpiry >= todayISO();
+    const usable = usableContracts(po.supplierId);
+    const chosen = po.contractId ? getContract(po.contractId) : null;
+    const contractOk = chosen ? usable.includes(chosen) : usable.length > 0;
+    const standing = s.id ? supplierStanding(s) : { key: 'STOP', reasons: ['Chưa chọn NCC'] };
     return [
+        { label: 'Nguồn cung không ở trạng thái Dừng mua', ok: standing.key !== 'STOP', detail: standing.reasons[0] },
         { label: 'NCC đã ký cam kết EUDR', ok: !!s.commitment },
-        { label: 'Hợp đồng khung còn hạn', ok: contractOk, detail: s.contractNo || 'Chưa có' },
+        { label: 'Có hợp đồng mua Đạt / Cần bổ sung còn hiệu lực', ok: contractOk, detail: chosen ? `${chosen.no}: ${assessContract(chosen).result}` : usable.map(c => c.no).join(', ') || 'Chưa có hợp đồng dùng được' },
         { label: 'Nước khai thác không rủi ro cao', ok: countryRisk(po.originCountry) !== 'HIGH', detail: po.originCountry },
         { label: 'Có thửa đúng loài, đúng nước khai thác', ok: plots.length > 0, detail: `${plots.length} thửa` },
         { label: 'Thửa không mất rừng sau 31/12/2020', ok: plots.length > 0 && clear.length === plots.length, detail: `${clear.length}/${plots.length} thửa` }
@@ -74,6 +82,7 @@ export function poForm(po = {}) {
     return `<div class="row g-2">
         ${field('Nhà cung cấp', 'supplierId', first.id, { type: 'select', col: 8, required: true, options: DB.suppliers.map(s => [s.id, `${s.name} (${s.country})`]), attrs: 'id="po-supplier"' })}
         ${field('Ngày lập', 'date', po.date || todayISO(), { type: 'date', col: 4, required: true })}
+        ${field('Hợp đồng mua', 'contractId', po.contractId || '', { type: 'select', col: 12, options: [['', 'Chọn hợp đồng']], attrs: `id="po-contract" data-value="${esc(po.contractId || '')}"`, help: 'Chỉ hiện hợp đồng Đạt hoặc Cần bổ sung, còn hiệu lực (bước 2)' })}
         ${field('Loài gỗ', 'species', po.species, { type: 'select', col: 5, options: speciesOptions() })}
         ${field('Loại nguyên liệu', 'inputType', po.inputType || PACK.inputs[0], { type: 'select', col: 3, options: PACK.inputs })}
         ${field('Nước khai thác (ISO 2)', 'originCountry', po.originCountry || first.country, { col: 4, required: true, attrs: 'maxlength="2" pattern="[A-Za-z]{2}" id="po-origin"' })}
@@ -93,9 +102,12 @@ export function poForm(po = {}) {
 }
 
 export function poFormSync(el) {
-    const sel = el.querySelector('#po-supplier');
+    const sel = el.querySelector('#po-supplier'), ct = el.querySelector('#po-contract');
+    const keep = ct.value || ct.dataset.value || '';
     const sync = changed => {
         const s = getSupplier(sel.value);
+        const list = usableContracts(sel.value);
+        ct.innerHTML = (list.length ? '' : '<option value="">Không có hợp đồng dùng được: lập ở bước 2</option>') + list.map(c => `<option value="${esc(c.id)}" ${c.id === keep ? 'selected' : ''}>${esc(c.no)} · ${esc(assessContract(c).result === 'PASS' ? 'Đạt' : 'Cần bổ sung')} · đến ${esc(c.end)}</option>`).join('');
         el.querySelector('#po-import').classList.toggle('d-none', s.type !== 'IMPORT');
         if (changed) {
             el.querySelector('#po-origin').value = s.country;
@@ -210,7 +222,7 @@ export function page_purchase_orders() {
         const f = poFilter;
         const rows = DB.purchaseOrders.filter(p => (!f.source || (f.source === 'IMPORT') === poIsImport(p)) && (!f.status || poState(p)[1] === f.status)).slice().reverse();
         const srcBtn = (v, label) => `<button type="button" class="btn btn-sm ${f.source === v ? 'btn-dark' : 'btn-light'}" onclick="setPoFilter('source','${v}')">${label}</button>`;
-        root.innerHTML = `<div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        root.innerHTML = `<div class="note-box"><i class="fa fa-file-invoice me-1"></i>Lệnh mua chỉ được duyệt khi nguồn cung không bị <b>Dừng mua</b> và có hợp đồng mua <b>Đạt / Cần bổ sung</b> còn hiệu lực. Trạm cân nhận xe theo lệnh đã duyệt.</div><div class="d-flex flex-wrap gap-2 align-items-center mb-2">
                 ${srcBtn('', `Tất cả (${DB.purchaseOrders.length})`)}${srcBtn('DOMESTIC', `Trong nước (${DB.purchaseOrders.filter(p => !poIsImport(p)).length})`)}${srcBtn('IMPORT', `Nhập khẩu (${DB.purchaseOrders.filter(poIsImport).length})`)}
                 <select class="form-select form-select-sm ms-auto" style="width:auto" aria-label="Trạng thái" onchange="setPoFilter('status',this.value)">${['', 'Nháp', 'Đã duyệt', 'Đang nhận', 'Đủ hàng', 'Đã hủy'].map(x => `<option value="${x}" ${f.status === x ? 'selected' : ''}>${x || 'Tất cả trạng thái'}</option>`).join('')}</select>
             </div>` + card('', table([

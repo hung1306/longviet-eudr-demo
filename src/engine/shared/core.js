@@ -310,8 +310,23 @@ export function assessReceipt(r) {
         add('Hồ sơ hợp pháp', noLand ? 'HIGH' : missing.length ? 'MEDIUM' : 'LOW', noLand ? 'Thiếu giấy quyền sử dụng đất' : missing.length ? 'Thiếu: ' + missing.join(', ') : 'Đủ');
     }
 
+    const contract = r.contractId ? getContract(r.contractId) : null;
+    if (r.contractId) {
+        if (!contract) add('Hợp đồng mua', 'HIGH', `Không tìm thấy hợp đồng ${r.contractId}`);
+        else {
+            const ca = assessContract(contract, r.date);
+            const first = ca.issues.find(i => i.level === ca.level);
+            add('Hợp đồng mua', ca.level, `${contract.no}: ${first ? first.msg : 'Đủ điều khoản và hồ sơ'}`);
+            if (contract.moist && r.moisture && r.moisture > contract.moist) add('Độ ẩm so với hợp đồng', 'MEDIUM', `Đo ${r.moisture}%, hợp đồng tối đa ${contract.moist}%`);
+        }
+    }
+
     const chainLevel = { DIRECT: 'LOW', AGENT: 'MEDIUM', MULTI: 'HIGH' }[supplier ? supplier.chain : 'MULTI'];
-    if (chainLevel === 'MEDIUM' && plots.length) add('Độ phức tạp chuỗi', 'LOW', 'Qua một đại lý, đã có tọa độ từng hộ');
+    const allowed = contract ? contractPlotIds(contract) : null;
+    if (chainLevel === 'MEDIUM' && allowed && plots.length) {
+        const outside = plots.filter(p => !allowed.includes(p.id));
+        add('Độ phức tạp chuỗi', outside.length ? 'HIGH' : 'LOW', outside.length ? `Thửa ${outside.map(p => p.id).join(', ')} không thuộc hộ trong hợp đồng` : 'Thương lái, mọi thửa thuộc hộ trong danh sách');
+    } else if (chainLevel === 'MEDIUM' && plots.length) add('Độ phức tạp chuỗi', 'LOW', 'Qua một đại lý, đã có tọa độ từng hộ');
     else add('Độ phức tạp chuỗi', chainLevel, chainLevel === 'HIGH' ? 'Nhiều tầng trung gian' : chainLevel === 'MEDIUM' ? 'Qua đại lý, chưa có danh sách hộ' : 'Mua trực tiếp');
 
     add('Cam kết nhà cung cấp', supplier && supplier.commitment ? 'LOW' : 'HIGH', supplier && supplier.commitment ? 'Đã ký' : 'Chưa ký cam kết EUDR');
@@ -328,7 +343,7 @@ export function assessReceipt(r) {
 /** PASS chỉ khi Tuân thủ đã ký và không còn yếu tố cao; mức trung bình còn phải có biện pháp giảm thiểu. */
 export function receiptStatus(r) {
     const { level } = assessReceipt(r);
-    if (level === 'HIGH') return 'FAIL';
+    if (level === 'HIGH' || (r.decision && r.decision.result === 'FAIL')) return 'FAIL';
     if (!r.approval) return 'PENDING';
     if (level === 'MEDIUM' && !r.mitigations.length) return 'PENDING';
     return 'PASS';
@@ -340,6 +355,7 @@ export function approveReceipt(r, by, reason) {
     if (level === 'MEDIUM' && !r.mitigations.length) throw new Error('Mức trung bình cần ghi biện pháp giảm thiểu trước khi duyệt');
     if (level === 'MEDIUM' && !reason) throw new Error('Cần ghi lý do duyệt');
     r.approval = { by, at: todayISO(), reason: reason || 'Đủ hồ sơ theo bộ tiêu chuẩn' };
+    r.decision = { result: 'PASS', action: 'PRODUCE', by, at: r.approval.at, reason: r.approval.reason };
     const bay = getBay(r.bay);
     const target = bay && bay.zone !== 'ZONE_A' ? DB.warehouseBays.find(b => b.zone === 'ZONE_A' && b.source === sourceOf(getSupplier(r.supplierId), r)) : null;
     if (target) {
@@ -347,6 +363,182 @@ export function approveReceipt(r, by, reason) {
         r.bay = target.id;
     }
     logAction(r.id, 'Duyệt Đạt', `${by}: ${r.approval.reason}`);
+}
+
+// ---------- Luồng mua vào: hợp đồng, nguồn cung, chốt chặn tại cổng, quyết định ----------
+/** Mức kết quả theo bộ tiêu chuẩn: Thấp = Đạt, Trung bình = Cần bổ sung, Cao = Không đạt. */
+export const LEVEL_RESULT = { LOW: 'PASS', MEDIUM: 'PENDING', HIGH: 'FAIL' };
+export const RESULT_LABEL = { PASS: 'Đạt', PENDING: 'Cần bổ sung', FAIL: 'Không đạt' };
+export const SUPPLIER_KINDS = [['OWNER', 'Chủ rừng / lâm trường'], ['TRADER', 'Thương lái / đại lý'], ['MILL', 'Xưởng sơ chế / nhà máy bóc'], ['IMPORTER', 'Bên bán nước ngoài']];
+export const supplierKind = s => (s && s.kind) || (s && s.type === 'IMPORT' ? 'IMPORTER' : s && s.chain === 'AGENT' ? 'TRADER' : 'OWNER');
+export const isTrader = s => supplierKind(s) === 'TRADER';
+
+/** Mức yêu cầu: req bắt buộc (thiếu là Không đạt), imp bắt buộc với hàng nhập khẩu, rec nên có (thiếu là Cần bổ sung), opt tùy chọn. */
+export const CONTRACT_CLAUSES = [
+    ['coord', 'Bên bán cung cấp tọa độ WGS84 (điểm hoặc polygon) của từng lô khai thác cho mỗi chuyến giao', 'req'],
+    ['sci', 'Bên bán khai tên khoa học đầy đủ và tên thương mại của loài gỗ', 'req'],
+    ['harvest', 'Bên bán khai kỳ khai thác của từng lô hàng', 'req'],
+    ['defor', 'Cam kết gỗ không từ đất bị phá rừng hoặc suy thoái rừng sau 31/12/2020', 'req'],
+    ['legal', 'Cam kết gỗ được khai thác hợp pháp theo luật nước khai thác', 'req'],
+    ['nomix', 'Không trộn nguồn khác vào lô đã khai báo, báo trước khi đổi nguồn', 'req'],
+    ['origin3', 'Khai nước khai thác gỗ gốc nếu gỗ tròn được nhập từ nước thứ ba', 'imp'],
+    ['audit', 'Bên mua có quyền kiểm tra tại chỗ, truy xuất và yêu cầu hồ sơ gốc', 'rec'],
+    ['retain', 'Bên bán lưu hồ sơ tối thiểu 5 năm', 'rec'],
+    ['reject', 'Quyền từ chối hoặc trả hàng khi hồ sơ không đạt', 'rec'],
+    ['refund', 'Thu hồi, thay thế hoặc hoàn tiền nếu lô bị phát hiện không đạt', 'rec']
+];
+export const CONTRACT_DOCS = {
+    DOMESTIC: [['biz', 'Đăng ký kinh doanh, mã số thuế hoặc CCCD của bên bán', 'req'], ['land', 'Giấy tờ quyền sử dụng đất hoặc rừng của vùng khai thác', 'req'], ['permit', 'Giấy phép hoặc thông báo khai thác', 'req'], ['labor', 'Cam kết tuân thủ pháp luật lao động, môi trường, thuế', 'req'], ['defor', 'Bằng chứng không phá rừng sau 31/12/2020 (ảnh vệ tinh, xác nhận địa phương)', 'req'], ['cert', 'Chứng chỉ FSC / PEFC / VFCS (hỗ trợ, không thay nghĩa vụ DDS)', 'opt']],
+    IMPORT: [['biz', 'Đăng ký kinh doanh của bên bán và nhà máy sơ chế', 'req'], ['legal', 'Hồ sơ khai thác hợp pháp tại nước khai thác gỗ gốc', 'req'], ['permit', 'Giấy phép hoặc hợp đồng khai thác của chủ rừng', 'req'], ['origin', 'Kê khai nước và vùng khai thác gỗ gốc', 'req'], ['defor', 'Bằng chứng không phá rừng sau 31/12/2020', 'req'], ['cert', 'Chứng chỉ FSC / PEFC CoC (hỗ trợ, không thay nghĩa vụ DDS)', 'opt']],
+    RECYCLED: [['biz', 'Đăng ký kinh doanh của bên bán', 'req'], ['recycle', 'Chứng nhận tái chế hoặc biên bản bàn giao phụ phẩm', 'req'], ['virgin', 'Kê khai tỷ lệ nguyên sinh và nguồn phần nguyên sinh', 'req'], ['cert', 'Chứng chỉ FSC / PEFC Recycled', 'opt']]
+};
+export const REQ_LABEL = { req: 'bắt buộc', imp: 'bắt buộc với hàng nhập khẩu', rec: 'nên có', opt: 'tùy chọn' };
+export const DECISION_ACTIONS = { PRODUCE: 'Cấp cho sản xuất', SUPPLEMENT: 'Chờ bổ sung hồ sơ', RETURN: 'Trả nhà cung cấp', NON_EU: 'Chỉ dùng cho đơn ngoài EU, đã tách riêng', QUARANTINE: 'Tiếp tục cách ly chờ bằng chứng' };
+export const EXPIRY_WARN_DAYS = 30;
+
+export const getContract = id => byId(DB.contracts, id);
+export const daysBetween = (from, to) => Math.round((new Date(to) - new Date(from)) / 864e5);
+export const contractSci = c => c.sci || c.species || '';
+/** Khối lượng hợp đồng: số kiện × số tấm × dài × rộng × dày (mm). */
+export function contractM3(c) {
+    return c.bales && c.per && c.len && c.wid && c.thk ? round(c.bales * c.per * c.len * c.wid * c.thk / 1e9, 3) : null;
+}
+export const contractReceipts = c => DB.receipts.filter(r => r.contractId === c.id);
+export const contractReceivedM3 = c => round(sum(contractReceipts(c), receiptM3), 3);
+/** Thửa mà lô theo hợp đồng này được phép gắn: thương lái chỉ lấy thửa của các hộ trong danh sách. */
+export function contractPlotIds(c) {
+    const s = getSupplier(c.supplierId);
+    if (isTrader(s)) return uniq((c.farmerIds || []).flatMap(id => (getFarmer(id) || {}).plots || []));
+    return DB.plots.filter(p => p.supplierId === c.supplierId).map(p => p.id);
+}
+export const farmerReady = f => !!f && (f.plots || []).length > 0 && !!f.landDoc && !/chưa/i.test(f.landDoc);
+
+/** Chấm một hợp đồng tại ngày `at`. Mục 'NOTE' chỉ để nhắc, không đổi mức. */
+export function assessContract(c, at = todayISO()) {
+    const issues = [];
+    const add = (level, msg) => issues.push({ level, msg });
+    const s = getSupplier(c.supplierId);
+    const origin = c.origin || 'DOMESTIC';
+    if (!s) add('HIGH', 'Chưa chọn bên bán');
+    if (!c.no) add('HIGH', 'Thiếu số hợp đồng');
+    if (!c.date) add('MEDIUM', 'Chưa ghi ngày ký');
+    if (c.end && c.date && c.end < c.date) add('MEDIUM', 'Ngày hết hiệu lực sớm hơn ngày ký');
+    if (!c.end) add('MEDIUM', 'Chưa ghi ngày hết hiệu lực');
+    else if (c.end < at) add('HIGH', 'Hợp đồng đã hết hiệu lực');
+    else if (daysBetween(at, c.end) <= EXPIRY_WARN_DAYS) add('NOTE', `Còn ${daysBetween(at, c.end)} ngày hết hiệu lực, cần gia hạn`);
+    const sci = contractSci(c).trim();
+    if (!(sci.split(/\s+/).length >= 2 && !/\bspp?\.?$/i.test(sci))) add('HIGH', 'Chưa có tên khoa học đến cấp loài, không chấp nhận "spp."');
+    if (origin !== 'RECYCLED') {
+        if (!(c.len > 0 && c.wid > 0 && c.thk > 0 && c.per > 0 && c.bales > 0)) add('MEDIUM', 'Chưa đủ quy cách nhận hàng (dài, rộng, dày, tấm mỗi kiện, số kiện)');
+        if (!(c.moist > 0)) add('MEDIUM', 'Chưa quy định độ ẩm tối đa khi nhận');
+        if (!(c.kgm3 > 0)) add('MEDIUM', 'Chưa có hệ số quy đổi kg/m³, cần để ghi khối lượng tịnh vào DDS');
+    }
+    CONTRACT_CLAUSES.forEach(([k, t, r]) => {
+        if (r === 'imp' && origin !== 'IMPORT') return;
+        if (r !== 'opt' && !(c.clauses || {})[k]) add(r === 'rec' ? 'MEDIUM' : 'HIGH', 'Hợp đồng thiếu điều khoản: ' + t);
+    });
+    (CONTRACT_DOCS[origin] || []).forEach(([k, t, r]) => {
+        const got = (c.docs || {})[k];
+        if (!got && r !== 'opt') add('HIGH', 'Thiếu hồ sơ: ' + t);
+        else if (got && !(c.scans || {})[k]) add('MEDIUM', 'Chưa có bản scan: ' + t);
+    });
+    if (s && isTrader(s)) {
+        const farmers = (c.farmerIds || []).map(getFarmer).filter(Boolean);
+        if (!farmers.length) add('HIGH', 'Thương lái chưa khai danh sách hộ cung cấp');
+        else {
+            const notReady = farmers.filter(f => !farmerReady(f));
+            if (notReady.length) add('NOTE', `${notReady.length}/${farmers.length} hộ thiếu tọa độ hoặc giấy tờ đất, chỉ nhận hàng từ hộ đủ hồ sơ`);
+        }
+    }
+    const level = issues.reduce((m, i) => LEVEL_RANK[i.level] > LEVEL_RANK[m] ? i.level : m, 'LOW');
+    return { level, result: LEVEL_RESULT[level], issues };
+}
+
+export const supplierContracts = id => DB.contracts.filter(c => c.supplierId === id);
+/** Hợp đồng dùng được tại ngày `at`: còn hiệu lực và không Không đạt. */
+export const usableContracts = (supplierId, at = todayISO()) => supplierContracts(supplierId).filter(c => c.date <= at && c.end >= at && assessContract(c, at).level !== 'HIGH');
+
+/** Xếp loại nguồn cung: OK được mua, COND có điều kiện, STOP dừng mua. */
+export function supplierStanding(s, at = todayISO()) {
+    const reasons = [], notes = [];
+    if (!s.commitment) reasons.push('Chưa ký cam kết EUDR');
+    if (countryRisk(s.country) === 'HIGH') reasons.push(`Quốc gia ${s.country} thuộc nhóm rủi ro cao`);
+    const usable = usableContracts(s.id, at);
+    if (!usable.length) reasons.push(supplierContracts(s.id).length ? 'Không còn hợp đồng Đạt hoặc còn hiệu lực' : 'Chưa có hợp đồng mua');
+    usable.forEach(c => assessContract(c, at).issues.filter(i => i.level !== 'LOW').forEach(i => notes.push(`${c.no}: ${i.msg}`)));
+    if (isTrader(s)) {
+        const farmers = DB.farmers.filter(f => f.traderId === s.id);
+        const ready = farmers.filter(farmerReady).length;
+        if (!farmers.length) reasons.push('Thương lái chưa có danh sách hộ');
+        else if (ready < farmers.length) notes.push(`${ready}/${farmers.length} hộ đủ hồ sơ`);
+    }
+    if (reasons.length) return { key: 'STOP', label: 'Dừng mua', reasons, notes };
+    if (notes.length) return { key: 'COND', label: 'Có điều kiện', reasons: notes, notes };
+    return { key: 'OK', label: 'Được mua', reasons: [], notes };
+}
+
+/**
+ * Chốt chặn tại cổng (bước 5). blocks: xe không được vào kho. warns: vẫn nhận, lô vào Khu B nếu chấm ra Cần bổ sung.
+ * input: { supplierId, contractId, plotIds, sourceCategory, virginPct, species, date, m3, moisture }
+ */
+export function gateCheck(input) {
+    const blocks = [], warns = [];
+    const at = input.date || todayISO();
+    const s = getSupplier(input.supplierId);
+    const c = input.contractId ? getContract(input.contractId) : null;
+    const plots = (input.plotIds || []).map(getPlot).filter(Boolean);
+    const recycledOnly = input.sourceCategory === 'RECYCLED' && !(Number(input.virginPct) > 0);
+    if (!s) blocks.push('Chưa xác định nhà cung cấp');
+    if (!c) blocks.push('Chưa gắn hợp đồng mua');
+    else {
+        if (c.supplierId !== input.supplierId) blocks.push(`Hợp đồng ${c.no} thuộc bên bán khác`);
+        const ca = assessContract(c, at);
+        if (c.end && c.end < at) blocks.push(`Hợp đồng ${c.no} đã hết hiệu lực ngày ${c.end}`);
+        else if (ca.level === 'HIGH') blocks.push(`Hợp đồng ${c.no} Không đạt: ${(ca.issues.find(i => i.level === 'HIGH') || {}).msg}`);
+        else if (ca.level === 'MEDIUM') warns.push(`Hợp đồng ${c.no} còn Cần bổ sung`);
+        const left = contractM3(c) === null ? null : round(contractM3(c) - contractReceivedM3(c), 3);
+        if (left !== null && input.m3 > left) warns.push(`Vượt khối lượng còn lại của hợp đồng (${left} m³)`);
+        if (c.moist && input.moisture && +input.moisture > c.moist) warns.push(`Độ ẩm ${input.moisture}% vượt mức hợp đồng ${c.moist}%`);
+        if (input.species && contractSci(c) && input.species !== contractSci(c)) warns.push(`Loài gỗ khác hợp đồng (${contractSci(c)})`);
+        if (s && isTrader(s)) {
+            const allowed = contractPlotIds(c);
+            const outside = plots.filter(p => !allowed.includes(p.id));
+            if (outside.length) blocks.push(`Thửa ${outside.map(p => p.id).join(', ')} không thuộc hộ được phép trong hợp đồng thương lái`);
+        }
+    }
+    if (input.sourceCategory === 'RECYCLED' && (input.virginPct === null || input.virginPct === undefined || input.virginPct === '')) blocks.push('Gỗ tái chế chưa khai tỷ lệ nguyên sinh (không rõ nguồn)');
+    if (!recycledOnly && !plots.length) blocks.push('Chưa gắn thửa đất nào cho lô');
+    const high = uniq(plots.map(p => p.country).filter(code => countryRisk(code) === 'HIGH'));
+    if (high.length) blocks.push(`Gốc từ nước rủi ro cao: ${high.join(', ')}. Dừng nhập, báo Tuân thủ`);
+    const allowedOrigins = DB.config.allowedOrigins || [];
+    const outsideList = uniq(plots.map(p => p.country).filter(code => code !== 'VN' && allowedOrigins.length && !allowedOrigins.includes(code)));
+    if (outsideList.length) blocks.push(`Nước ${outsideList.join(', ')} ngoài danh sách vùng địa lý tích cực (NĐ 102/2020)`);
+    return { ok: !blocks.length, blocks, warns };
+}
+
+/** Ô kho mặc định khi mới nhận: chấm ra Cao thì cách ly Khu C, còn lại giữ ở Khu B chờ Tuân thủ ký. */
+export function initialBay(r) {
+    const zone = assessReceipt(r).level === 'HIGH' ? 'ZONE_C' : 'ZONE_B';
+    return (DB.warehouseBays.find(b => b.zone === zone) || {}).id || '';
+}
+
+/** Quyết định của Tuân thủ cho lô Cần bổ sung hoặc Không đạt. Lô đổi ô theo khu. */
+export function decideReceipt(r, { result, action, by, reason }) {
+    if (!by) throw new Error('Cần ghi người quyết định');
+    if (!reason) throw new Error('Cần ghi lý do');
+    if (result === 'PASS') { approveReceipt(r, by, reason); r.done = true; return; }
+    if (result === 'PENDING' && assessReceipt(r).level === 'HIGH') throw new Error('Lô có yếu tố rủi ro cao, chỉ được xếp Không đạt');
+    if (result === 'FAIL' && !['RETURN', 'NON_EU', 'QUARANTINE'].includes(action)) throw new Error('Chọn cách xử lý lô Không đạt');
+    r.approval = null;
+    r.decision = { result, action: result === 'PENDING' ? 'SUPPLEMENT' : action, by, at: todayISO(), reason };
+    r.done = result === 'FAIL' && action !== 'QUARANTINE';
+    const zone = result === 'FAIL' ? 'ZONE_C' : 'ZONE_B';
+    const bay = getBay(r.bay);
+    if (!bay || bay.zone !== zone) {
+        const target = DB.warehouseBays.find(b => b.zone === zone);
+        if (target) { logAction(r.id, 'Chuyển ô kho', `${r.bay || '–'} sang ${target.id}`); r.bay = target.id; }
+    }
+    logAction(r.id, `Quyết định ${RESULT_LABEL[result]}`, `${by}: ${DECISION_ACTIONS[r.decision.action]}; ${reason}`);
 }
 
 export function harvestRange(plots) {

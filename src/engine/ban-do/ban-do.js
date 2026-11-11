@@ -290,7 +290,7 @@ export function page_map_chu_rung() {
         let activeTab = 'farmers';
 
         const renderContent = () => {
-            const tabsHtml = `<ul class="nav nav-tabs mb-3">
+            const tabsHtml = `<div class="note-box"><i class="fa fa-arrow-right me-1"></i>Hồ sơ thương lái, danh sách hộ và trạng thái được mua quản lý ở <a href="/nha-may/hop-dong-cung-ung">Nhà máy › 1. Nguồn cung & Thương lái</a>. Trang này chỉ để xem trên bản đồ.</div><ul class="nav nav-tabs mb-3">
                 <li class="nav-item"><button type="button" class="nav-link ${activeTab === 'farmers' ? 'active' : ''}" onclick="switchFarmerTab('farmers')"><i class="fa fa-person-digging me-1"></i>Hộ trồng rừng / Nông hộ (${DB.farmers.length})</button></li>
                 <li class="nav-item"><button type="button" class="nav-link ${activeTab === 'suppliers' ? 'active' : ''}" onclick="switchFarmerTab('suppliers')"><i class="fa fa-warehouse me-1"></i>Nhà cung cấp, thương lái (${DB.suppliers.length})</button></li>
             </ul>`;

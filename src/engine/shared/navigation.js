@@ -160,6 +160,30 @@ export function table(columns, rows, emptyText = 'Chưa có dữ liệu') {
     </tbody></table></div>`;
 }
 
+/** Năm màn hình của luồng mua nguyên liệu vào, hiện ở đầu mỗi trang để biết đang ở bước nào. */
+export const FLOW_STEPS = [
+    ['Nguồn cung & thương lái', '/nha-may/hop-dong-cung-ung', 'fa-people-roof', 'Đăng ký NCC, danh sách hộ, thửa'],
+    ['Hợp đồng mua & hồ sơ', '/nha-may/hop-dong-mua', 'fa-file-signature', 'Điều khoản EUDR, hồ sơ, bản scan'],
+    ['Lệnh mua', '/nha-may/lenh-mua', 'fa-file-invoice', 'Chỉ theo hợp đồng còn dùng được'],
+    ['Tiếp nhận & đánh giá lô', '/nha-may/tiep-nhan', 'fa-truck-ramp-box', 'Cân, đối soát cổng, chấm, ký'],
+    ['Kho A/B/C & sản xuất', '/nha-may/kho-nguyen-lieu', 'fa-warehouse', 'Chỉ Khu A vào lệnh EU']
+];
+export function flowStrip(active) {
+    return `<nav class="flow-strip" aria-label="Luồng mua nguyên liệu vào">${FLOW_STEPS.map(([title, url, icon, note], i) => `<a href="${url}" class="flow-step ${i + 1 === active ? 'active' : i + 1 < active ? 'past' : ''}" ${i + 1 === active ? 'aria-current="step"' : ''}><span class="flow-no">${i + 1}</span><span class="flow-text"><b><i class="fa ${icon} me-1"></i>${esc(title)}</b><small>${esc(note)}</small></span></a>`).join('<i class="fa fa-chevron-right flow-arrow" aria-hidden="true"></i>')}</nav>`;
+}
+
+/** Nhãn kết quả Đạt / Cần bổ sung / Không đạt theo mức rủi ro. */
+export const LEVEL_TEXT = { LOW: ['PASS', 'Đạt'], MEDIUM: ['MEDIUM', 'Cần bổ sung'], HIGH: ['FAIL', 'Không đạt'] };
+export const levelPill = (level, label) => pill(LEVEL_TEXT[level][0], label || LEVEL_TEXT[level][1]);
+
+/** Khung kết quả: tiêu đề theo mức và danh sách việc còn thiếu. issues: [{ level, msg }]. */
+export function riskBox(title, level, issues, okText, extra = '') {
+    const tone = { LOW: 'ok', MEDIUM: 'warn', HIGH: 'bad' }[level];
+    const icon = { HIGH: 'fa-circle-xmark', MEDIUM: 'fa-triangle-exclamation', NOTE: 'fa-circle-info', LOW: 'fa-circle-check' };
+    const list = issues.filter(i => i.level !== 'LOW');
+    return `<div class="risk-box ${tone}"><strong>${esc(title)}: ${esc(LEVEL_TEXT[level][1])}</strong>${list.length ? `<ul>${list.map(i => `<li class="lv-${i.level.toLowerCase()}"><i class="fa ${icon[i.level]}"></i>${esc(i.msg)}</li>`).join('')}</ul>` : `<p>${esc(okText)}</p>`}${extra}</div>`;
+}
+
 export const card = (title, body, right = '', cls = '') => `<section class="panel ${cls}">${title ? `<header class="panel-head"><h2>${esc(title)}</h2><div>${right}</div></header>` : ''}<div class="panel-body">${body}</div></section>`;
 export const kpi = (label, value, note, tone = '') => `<div class="kpi ${tone}"><span class="kpi-label">${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(note)}</small></div>`;
 

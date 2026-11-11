@@ -43,10 +43,23 @@ import {
     unitName,
     bayStock,
     palletShipped,
+    DECISION_ACTIONS,
+    EXPIRY_WARN_DAYS,
+    SUPPLIER_KINDS,
+    assessContract,
+    daysBetween,
+    farmerReady,
+    isTrader,
+    supplierContracts,
+    supplierKind,
+    supplierStanding,
+    usableContracts,
 } from '../shared/core.js';
 import {
     card,
     drawPlotsMap,
+    kpi,
+    levelPill,
     esc,
     field,
     fmt,
@@ -80,20 +93,21 @@ export function editSupplier(id) {
         body: `<div class="row g-2">
             ${field('Tên đơn vị', 'name', s.name, { required: true, col: 8 })}
             ${field('Mã số thuế / ĐKKD', 'taxCode', s.taxCode, { col: 4 })}
-            ${field('Loại nguồn', 'type', s.type, { type: 'select', col: 4, options: [['DOMESTIC', 'Trong nước'], ['IMPORT', 'Nhập khẩu']] })}
-            ${field('Mã quốc gia (ISO 2)', 'country', s.country, { required: true, col: 4, attrs: 'maxlength="2" pattern="[A-Za-z]{2}"' })}
-            ${field('Chuỗi cung ứng', 'chain', s.chain, { type: 'select', col: 4, options: CHAINS })}
+            ${field('Loại bên bán', 'kind', supplierKind(s), { type: 'select', col: 6, options: SUPPLIER_KINDS, help: 'Thương lái phải khai danh sách hộ cung cấp' })}
+            ${field('Chuỗi cung ứng', 'chain', s.chain, { type: 'select', col: 6, options: CHAINS })}
+            ${field('Loại nguồn', 'type', s.type, { type: 'select', col: 6, options: [['DOMESTIC', 'Trong nước'], ['IMPORT', 'Nhập khẩu']] })}
+            ${field('Mã quốc gia (ISO 2)', 'country', s.country, { required: true, col: 6, attrs: 'maxlength="2" pattern="[A-Za-z]{2}"' })}
             ${field('Địa chỉ bưu chính', 'address', s.address, { required: true })}
             ${field('Email', 'email', s.email, { required: true, type: 'email' })}
             ${field('Người liên hệ', 'contact', s.contact)}
             ${field('Nơi sơ chế, sấy trung gian và tọa độ', 'site', s.site)}
-            ${field('Số hợp đồng', 'contractNo', s.contractNo)}
-            ${field('Hợp đồng hết hạn', 'contractExpiry', s.contractExpiry, { type: 'date' })}
+            <div class="col-12"><div class="form-text">Hợp đồng mua, điều khoản và hồ sơ pháp lý nhập ở bước 2 <a href="/nha-may/hop-dong-mua">Hợp đồng mua & hồ sơ</a>.</div></div>
             <div class="col-12"><label class="d-flex gap-2"><input class="form-check-input" type="checkbox" name="commitment" ${s.commitment ? 'checked' : ''}>
             <span>Đã ký cam kết EUDR</span></label></div>
         </div>`,
         onSubmit: data => guarded('supplier', () => {
             const clean = { ...data, country: data.country.toUpperCase(), commitment: !!data.commitment };
+            if (clean.kind === 'TRADER' && clean.chain === 'DIRECT') clean.chain = 'AGENT';
             if (id) {
                 Object.assign(s, clean);
                 logAction(id, 'Sửa nhà cung cấp', s.name);
@@ -222,21 +236,101 @@ export function showSupplierPlots(id) {
     m.el.querySelectorAll('[data-forest]').forEach(b => { b.onclick = () => { m.hide(); editForest(b.dataset.forest); }; });
 }
 
+export const STANDING_PILL = { OK: 'PASS', COND: 'MEDIUM', STOP: 'FAIL' };
+export const standingPill = st => pill(STANDING_PILL[st.key], st.label);
+const kindName = s => (SUPPLIER_KINDS.find(k => k[0] === supplierKind(s)) || [])[1] || '';
+
+/** Hộ trồng rừng / nông hộ, gắn với thương lái mua gom. */
+export function editFarmer(id) {
+    const f = id ? DB.farmers.find(x => x.id === id) : { id: `HL-${String(DB.farmers.length + 1).padStart(2, '0')}`, plots: [], traderId: '', species: DB.config.species[0].scientific };
+    const traders = DB.suppliers.filter(isTrader);
+    const plots = DB.plots.filter(p => (f.plots || []).includes(p.id) || !DB.farmers.some(x => (x.plots || []).includes(p.id)));
+    openModal({
+        title: id ? `Sửa hộ ${f.id}` : 'Thêm hộ trồng rừng', size: 'modal-lg', submitText: 'Lưu hồ sơ hộ',
+        body: `<div class="row g-2">
+            ${field('Mã hộ', 'id', f.id, { required: true, col: 3, attrs: id ? 'readonly' : '' })}
+            ${field('Họ tên chủ rừng / nông hộ', 'name', f.name, { required: true, col: 5 })}
+            ${field('Thuộc thương lái', 'traderId', f.traderId || '', { type: 'select', col: 4, options: [['', 'Bán trực tiếp'], ...traders.map(s => [s.id, s.name])] })}
+            ${field('CCCD / MST', 'cccd', f.cccd, { required: true, col: 4 })}
+            ${field('Số điện thoại', 'phone', f.phone, { col: 4 })}
+            ${field('Diện tích (ha)', 'areaHa', f.areaHa, { type: 'number', col: 4, attrs: 'step="0.1" min="0"' })}
+            ${field('Địa chỉ vườn / rừng', 'address', f.address, { required: true, col: 8 })}
+            ${field('Loài cây', 'species', f.species, { type: 'select', col: 4, options: speciesOptions() })}
+            ${field('Giấy tờ đất (số sổ đỏ, QĐ giao đất...)', 'landDoc', f.landDoc, { col: 12, help: 'Để trống nếu chưa có. Hộ thiếu giấy tờ đất hoặc thửa bị chặn tại cổng.' })}
+            <div class="col-12"><label class="form-label">Thửa đất của hộ (đã nạp tọa độ)</label><div class="pick-list">${plots.map(p => `<label><input class="form-check-input" type="checkbox" name="plots" value="${esc(p.id)}" ${(f.plots || []).includes(p.id) ? 'checked' : ''}><span>${esc(p.id)}<span class="sub">${esc(p.owner)} · ${fmt(p.areaHa)} ha · ${esc(p.geometry.type)}</span></span></label>`).join('') || '<div class="empty">Chưa có thửa trống. Nạp GeoJSON ở tab Nhà cung cấp.</div>'}</div></div>
+        </div>`,
+        onSubmit: (data, fd) => guarded('supplier', () => {
+            const rec = { ...f, ...data, id: data.id.trim(), areaHa: +data.areaHa || 0, plots: fd.getAll('plots'), type: f.type || 'SMALLHOLDER' };
+            rec.eudrStatus = farmerReady(rec) ? 'PASS' : 'FAIL';
+            if (id) Object.assign(f, rec);
+            else {
+                if (DB.farmers.some(x => x.id === rec.id)) throw new Error(`Mã hộ ${rec.id} đã tồn tại`);
+                DB.farmers.push(rec);
+            }
+            logAction(rec.id, id ? 'Sửa hộ trồng rừng' : 'Thêm hộ trồng rừng', `${rec.name}${rec.traderId ? `, thuộc ${rec.traderId}` : ''}; ${rec.plots.length} thửa`);
+            toast(`Đã lưu hộ ${rec.name}`);
+            refresh();
+        })
+    });
+}
+
+export function showTraderFarmers(id) {
+    const s = getSupplier(id), list = DB.farmers.filter(f => f.traderId === id);
+    openModal({
+        title: `Danh sách hộ của ${s.name} (${list.length})`, size: 'modal-xl',
+        body: `<div class="note-box">Thương lái chỉ được giao hàng từ các hộ có trong danh sách <b>và</b> được chọn trong hợp đồng mua. Hộ thiếu tọa độ hoặc giấy tờ đất thì xe bị chặn tại cổng.</div>` + table([
+            { title: 'Mã hộ', render: f => `<span class="code">${esc(f.id)}</span>` },
+            { title: 'Chủ hộ', render: f => `${esc(f.name)}<span class="sub">${esc(f.cccd)} · ${esc(f.address)}</span>` },
+            { title: 'Thửa', render: f => (f.plots || []).map(tag).join('') || pill('FAIL', 'Chưa có') },
+            { title: 'Giấy đất', render: f => f.landDoc && !/chưa/i.test(f.landDoc) ? esc(f.landDoc) : pill('FAIL', 'Thiếu') },
+            { title: 'Trong hợp đồng', render: f => usableContracts(id).filter(c => (c.farmerIds || []).includes(f.id)).map(c => tag(c.no)).join('') || '–' },
+            { title: 'Hồ sơ hộ', render: f => farmerReady(f) ? pill('PASS', 'Đủ') : pill('FAIL', 'Thiếu') }
+        ], list, 'Chưa có hộ nào'),
+        footerExtra: `<button type="button" class="btn btn-sm btn-primary" data-bs-dismiss="modal" onclick="setTimeout(()=>editFarmer(),300)"><i class="fa fa-plus me-1"></i>Thêm hộ</button>`
+    });
+}
+
+export let supplierTab = 'suppliers';
+export function setSupplierTab(tab) { supplierTab = tab; refresh(); }
+
 export function page_suppliers() {
-    startPage('hop-dong', { title: 'Nhà cung cấp', actions: newBtn('Thêm nhà cung cấp', 'editSupplier()') }, root => {
-        root.innerHTML = card('', table([
-            { title: 'Mã', render: s => `<span class="code">${esc(s.id)}</span>` },
-            { title: 'Đơn vị', render: s => `${esc(s.name)}<span class="sub">${esc(s.address)} · ${esc(s.email)}</span>` },
-            { title: 'Nguồn', render: s => `${s.type === 'IMPORT' ? 'Nhập khẩu' : 'Trong nước'} (${esc(s.country)})<span class="sub">${esc((CHAINS.find(c => c[0] === s.chain) || [])[1])}</span>` },
-            { title: 'Hợp đồng', render: s => {
-                if (!s.contractExpiry) return pill('FAIL', 'Chưa có');
-                const left = Math.ceil((new Date(s.contractExpiry) - new Date(todayISO())) / 864e5);
-                return `${esc(s.contractNo)}<span class="sub">đến ${esc(s.contractExpiry)}</span>${left <= 30 ? pill('MEDIUM', left < 0 ? 'Hết hạn' : `Còn ${left} ngày`) : ''}`;
+    supplierTab = new URLSearchParams(location.search).get('tab') === 'farmers' ? 'farmers' : 'suppliers';
+    startPage('hop-dong', { title: 'Nguồn cung & Thương lái', actions: newBtn('Thêm nhà cung cấp', 'editSupplier()') + ' ' + `<button class="btn btn-sm btn-light" onclick="editFarmer()"><i class="fa fa-person-digging me-1"></i>Thêm hộ</button>` }, root => {
+        const standings = DB.suppliers.map(s => ({ s, st: supplierStanding(s) }));
+        const n = k => standings.filter(x => x.st.key === k).length;
+        const tabs = `<ul class="nav nav-tabs mb-2">
+            <li class="nav-item"><button type="button" class="nav-link ${supplierTab === 'suppliers' ? 'active' : ''}" onclick="setSupplierTab('suppliers')"><i class="fa fa-warehouse me-1"></i>Nhà cung cấp, thương lái (${DB.suppliers.length})</button></li>
+            <li class="nav-item"><button type="button" class="nav-link ${supplierTab === 'farmers' ? 'active' : ''}" onclick="setSupplierTab('farmers')"><i class="fa fa-person-digging me-1"></i>Hộ trồng rừng / nông hộ (${DB.farmers.length})</button></li></ul>`;
+        const head = `<div class="kpi-row">${kpi('Được mua', n('OK'), 'đủ cam kết, hợp đồng, hồ sơ', 'ok')}${kpi('Có điều kiện', n('COND'), 'sắp hết hạn hoặc hộ thiếu hồ sơ', 'warn')}${kpi('Dừng mua', n('STOP'), 'không lập được lệnh mua', 'bad')}${kpi('Hộ đủ hồ sơ', `${DB.farmers.filter(farmerReady).length}/${DB.farmers.length}`, 'tọa độ + giấy tờ đất')}</div>` + tabs;
+        if (supplierTab === 'farmers') {
+            root.innerHTML = head + card('', table([
+                { title: 'Mã hộ', render: f => `<span class="code">${esc(f.id)}</span>` },
+                { title: 'Chủ hộ', render: f => `<b>${esc(f.name)}</b><span class="sub">${esc(f.cccd)} · ${esc(f.phone || '')}</span>` },
+                { title: 'Thuộc thương lái', render: f => f.traderId ? `${esc(supplierName(f.traderId))}<span class="sub">${esc(f.traderId)}</span>` : '<span class="text-muted">Bán trực tiếp</span>' },
+                { title: 'Địa chỉ', render: f => esc(f.address) },
+                { title: 'Diện tích', num: true, render: f => `${fmt(f.areaHa)} ha` },
+                { title: 'Thửa', render: f => (f.plots || []).map(tag).join('') || pill('FAIL', 'Chưa có tọa độ') },
+                { title: 'Giấy đất', render: f => f.landDoc && !/chưa/i.test(f.landDoc) ? esc(f.landDoc) : pill('FAIL', 'Thiếu') },
+                { title: 'Hồ sơ hộ', render: f => farmerReady(f) ? pill('PASS', 'Đủ') : pill('FAIL', 'Thiếu') },
+                { title: '', render: f => `<button class="btn btn-sm btn-light btn-icon" aria-label="Sửa ${esc(f.id)}" onclick="editFarmer('${f.id}')"><i class="fa fa-pen"></i></button>` }
+            ], DB.farmers), '', 'panel-flush');
+            return;
+        }
+        root.innerHTML = head + card('', table([
+            { title: 'Mã', render: ({ s }) => `<span class="code">${esc(s.id)}</span>` },
+            { title: 'Đơn vị', render: ({ s }) => `<b>${esc(s.name)}</b><span class="sub">${esc(kindName(s))} · ${esc(s.address)}</span>` },
+            { title: 'Nguồn', render: ({ s }) => `${s.type === 'IMPORT' ? 'Nhập khẩu' : 'Trong nước'} (${esc(s.country)})<span class="sub">${esc((CHAINS.find(c => c[0] === s.chain) || [])[1])}</span>` },
+            { title: 'Hợp đồng mua', render: ({ s }) => {
+                const list = supplierContracts(s.id);
+                if (!list.length) return `${pill('FAIL', 'Chưa có')}<span class="sub"><a href="/nha-may/hop-dong-mua">Lập hợp đồng</a></span>`;
+                return list.map(c => { const a = assessContract(c); return `<div><span class="code">${esc(c.no)}</span> ${levelPill(a.level)}<span class="sub">đến ${esc(c.end)}${c.end && daysBetween(todayISO(), c.end) <= EXPIRY_WARN_DAYS ? ` · ${c.end < todayISO() ? 'hết hạn' : `còn ${daysBetween(todayISO(), c.end)} ngày`}` : ''}</span></div>`; }).join('');
             } },
-            { title: 'Cam kết EUDR', render: s => s.commitment ? pill('PASS', 'Đã ký') : pill('FAIL', 'Chưa ký') },
-            { title: 'Tọa độ', render: s => supplierGeoPill(s) },
-            { title: '', render: s => `<div class="d-flex gap-1"><button class="btn btn-sm btn-light" onclick="showSupplierPlots('${s.id}')">Thửa đất</button><button class="btn btn-sm btn-light btn-icon" aria-label="Sửa ${s.id}" onclick="editSupplier('${s.id}')"><i class="fa fa-pen"></i></button></div>` }
-        ], DB.suppliers), '', 'panel-flush');
+            { title: 'Hộ', render: ({ s }) => { if (!isTrader(s)) return '–'; const list = DB.farmers.filter(f => f.traderId === s.id); return `<button class="btn btn-sm btn-light" onclick="showTraderFarmers('${s.id}')">${list.filter(farmerReady).length}/${list.length} đủ hồ sơ</button>`; } },
+            { title: 'Cam kết EUDR', render: ({ s }) => s.commitment ? pill('PASS', 'Đã ký') : pill('FAIL', 'Chưa ký') },
+            { title: 'Tọa độ', render: ({ s }) => supplierGeoPill(s) },
+            { title: 'Trạng thái nguồn', render: ({ st }) => `${standingPill(st)}${st.reasons.length ? `<span class="sub">${esc(st.reasons[0])}${st.reasons.length > 1 ? ` (+${st.reasons.length - 1})` : ''}</span>` : ''}` },
+            { title: '', render: ({ s }) => `<div class="d-flex gap-1"><button class="btn btn-sm btn-light" onclick="showSupplierPlots('${s.id}')">Thửa đất</button><button class="btn btn-sm btn-light btn-icon" aria-label="Sửa ${s.id}" onclick="editSupplier('${s.id}')"><i class="fa fa-pen"></i></button></div>` }
+        ], standings), '', 'panel-flush');
     });
 }
 
@@ -277,7 +371,8 @@ export function page_warehouse() {
                 { title: 'Đã cấp', num: true, render: r => `${fmt(receiptM3(r) - receiptStock(r))} m³` },
                 { title: 'Còn', num: true, render: r => `<b>${fmt(receiptStock(r))} m³</b>` },
                 { title: 'Lệnh đã cấp', render: r => DB.workOrders.filter(w => woReceipts(w).some(x => x.id === r.id)).map(w => traceLink(w.id)).join('') || '–' },
-                { title: 'EUDR', render: r => pill(receiptStatus(r)) }
+                { title: 'EUDR', render: r => pill(receiptStatus(r)) },
+                { title: 'Quyết định Tuân thủ', render: r => r.decision ? `${esc(DECISION_ACTIONS[r.decision.action] || '')}<span class="sub">${esc(r.decision.by)} · ${esc(r.decision.at)}</span>` : r.approval ? `Cấp cho sản xuất<span class="sub">${esc(r.approval.by)} · ${esc(r.approval.at)}</span>` : `<button class="btn btn-sm btn-light" onclick="showReceipt('${r.id}')">Chờ quyết định</button>` }
             ], rows), '', 'panel-flush') +
             card(`Kiện còn tồn (${pkgs.length})`, table([
                 { title: 'Mã kiện', render: p => `<span class="code">${esc(p.id)}</span>` },

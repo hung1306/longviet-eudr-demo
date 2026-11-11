@@ -58,6 +58,20 @@ import {
     sourceOf,
     unitName,
     SOURCE_DOCS,
+    DECISION_ACTIONS,
+    LEVEL_RESULT,
+    RESULT_LABEL,
+    SUPPLIER_KINDS,
+    assessContract,
+    contractPlotIds,
+    decideReceipt,
+    gateCheck,
+    getContract,
+    initialBay,
+    supplierContracts,
+    supplierKind,
+    supplierStanding,
+    usableContracts,
 } from '../shared/core.js';
 import {
     card,
@@ -66,6 +80,8 @@ import {
     field,
     fmt,
     guarded,
+    levelPill,
+    riskBox,
     openModal,
     orderPill,
     pill,
@@ -88,153 +104,201 @@ export const dateFilter = (days) => {
 export const quickDays = (fn, list) => list.map(d => `<button type="button" class="chip" onclick="${fn}(${d})">${d === 0 ? 'Hôm nay' : -d + ' ngày'}</button>`).join('');
 
 // ========== TIẾP NHẬN (TransportMaterial) ==========
+// Bước 4 cân xe → bước 5 đối soát cổng (chốt chặn) → bước 6 chấm & Tuân thủ ký → bước 7 xếp kho A/B/C → bước 8 xử lý B/C.
 const initialRecvFilter = () => ({ status: 'WAIT', source: '', from: dateFilter(-90), to: todayISO(), code: '', scaleDate: '' });
 export const recvFilter = initialRecvFilter();
+export const RECV_STATUS = [['WAIT', 'Chờ Tuân thủ ký'], ['PASS', 'Đạt: Khu A'], ['PENDING', 'Cần bổ sung: Khu B'], ['FAIL', 'Không đạt: Khu C'], ['ALL', 'Tất cả']];
 
 export function receiptSource(r) { return SOURCE_LABEL[sourceOf(getSupplier(r.supplierId), r)]; }
 export function setRecv(key, value) { recvFilter[key] = value; refresh(); }
 export function chooseRecvTime(days) { recvFilter.from = dateFilter(days); recvFilter.to = todayISO(); refresh(); }
+/** Lô đang chờ Tuân thủ quyết định: chưa ký Đạt, chưa có quyết định xử lý cuối. */
+export const receiptWaiting = r => !r.done;
+const kindOf = s => (SUPPLIER_KINDS.find(k => k[0] === supplierKind(s)) || [])[1] || '';
+const nonLow = a => a.factors.filter(f => f.level !== 'LOW');
 
 export function createReceipt(data, plotIds, docs, ticket) {
     const ym = data.date.slice(2, 7).replace('-', '');
     const no = DB.receipts.reduce((m, r) => Math.max(m, Number((r.id.match(/\d+$/) || [0])[0])), 0) + 1;
     const source = data.sourceCategory || sourceOf(getSupplier(data.supplierId));
-    const r = { id: `RC-${ym}-${String(no).padStart(3, '0')}`, plate: data.plate, supplierId: data.supplierId, date: data.date, species: data.species, inputType: data.inputType || PACK.inputs[0], sourceCategory: source, virginPct: data.virginPct === undefined || data.virginPct === '' ? null : +data.virginPct, pkgCount: +data.pkgCount, m3: +(+data.pkgCount * +data.pkgM3).toFixed(4), gross: +data.gross, tare: +data.tare, moisture: +data.moisture || null, grade: data.grade || '', bay: data.bay || '', trip: +data.trip || 1, workshop: data.workshop || '', expectedKg: +data.expectedKg || (+data.gross - +data.tare), dataSource: data.dataSource || 'Nhập tay', plotIds, docs, note: data.note || '', kcs: null, done: false, approval: null, mitigations: [] };
-    if (r.gross <= r.tare) throw new Error('Cân tổng phải lớn hơn cân xe');
+    const virginPct = data.virginPct === undefined || data.virginPct === '' ? null : +data.virginPct;
+    const m3 = +(+data.pkgCount * +data.pkgM3).toFixed(4);
+    if (+data.gross <= +data.tare) throw new Error('Cân tổng phải lớn hơn cân xe');
+    const gate = gateCheck({ supplierId: data.supplierId, contractId: data.contractId, plotIds, sourceCategory: source, virginPct: virginPct === null && source !== 'RECYCLED' ? undefined : virginPct, species: data.species, date: data.date, m3, moisture: data.moisture });
+    if (!gate.ok) throw new Error('Bị chặn tại cổng: ' + gate.blocks[0]);
+    const r = { id: `RC-${ym}-${String(no).padStart(3, '0')}`, plate: data.plate, supplierId: data.supplierId, contractId: data.contractId || '', date: data.date, species: data.species, inputType: data.inputType || PACK.inputs[0], sourceCategory: source, virginPct, pkgCount: +data.pkgCount, m3, gross: +data.gross, tare: +data.tare, moisture: +data.moisture || null, grade: data.grade || '', bay: '', trip: +data.trip || 1, workshop: data.workshop || '', expectedKg: +data.expectedKg || (+data.gross - +data.tare), dataSource: data.dataSource || 'Nhập tay', plotIds, docs, note: data.note || '', kcs: null, done: false, approval: null, decision: null, mitigations: [], gateWarns: gate.warns };
+    r.bay = initialBay(r);
     DB.receipts.push(r);
-    const m3 = +data.pkgM3;
     let pno = DB.packages.reduce((max, p) => Math.max(max, +p.id.slice(-4)), 0);
-    for (let i = 0; i < r.pkgCount; i++) DB.packages.push({ id: 'PKG-2026-' + String(++pno).padStart(4, '0'), receiptId: r.id, m3 });
+    for (let i = 0; i < r.pkgCount; i++) DB.packages.push({ id: 'PKG-2026-' + String(++pno).padStart(4, '0'), receiptId: r.id, m3: +data.pkgM3 });
     if (ticket) ticket.receiptId = r.id;
-    logAction(r.id, 'Tiếp nhận lô', `${r.dataSource}; ${r.pkgCount} kiện, ${receiptNetKg(r)} kg`);
+    logAction(r.id, 'Tiếp nhận lô', `${r.dataSource}; HĐ ${(getContract(r.contractId) || {}).no || '–'}; ${r.pkgCount} kiện, ${receiptNetKg(r)} kg; ô ${r.bay}${gate.warns.length ? '; cảnh báo: ' + gate.warns.join('; ') : ''}`);
     return r;
 }
 
+/** Form phiếu: chọn NCC → hợp đồng → thửa được phép. Dùng chung cho đối soát xe, nhập tay. */
 export function receiptForm(preset = {}) {
     return `<div class="row g-2">
-        ${field('Nhà cung cấp', 'supplierId', preset.supplierId, { type: 'select', options: DB.suppliers.map(s => [s.id, `${s.name} (${s.country})`]), required: true })}
+        <div class="col-12"><h3 class="form-section"><span>A</span>Xe & hợp đồng</h3></div>
+        ${field('Nhà cung cấp', 'supplierId', preset.supplierId, { type: 'select', col: 6, options: DB.suppliers.map(s => [s.id, `${s.name} · ${kindOf(s)}`]), required: true })}
+        ${field('Hợp đồng mua', 'contractId', preset.contractId || '', { type: 'select', col: 6, required: true, options: [['', '–']], attrs: `data-contract-select data-value="${esc(preset.contractId || '')}"` })}
+        ${poField(preset.poId)}
         ${field('Biển số / Container', 'plate', preset.plate, { required: true, col: 3 })}
         ${field('Ngày cân', 'date', preset.date || todayISO(), { type: 'date', col: 3, required: true })}
         ${field('Xưởng', 'workshop', preset.workshop || PACK.workshops[0], { type: 'select', col: 3, options: PACK.workshops })}
-        ${field('Lần vận chuyển', 'trip', preset.trip || 1, { type: 'number', col: 3, attrs: 'min="1"' })}
+        ${field('Lần VC', 'trip', preset.trip || 1, { type: 'number', col: 3, attrs: 'min="1"' })}
         ${field('Cân tổng (kg)', 'gross', preset.gross, { type: 'number', col: 3, required: true, attrs: 'min="1"' })}
         ${field('Cân xe (kg)', 'tare', preset.tare, { type: 'number', col: 3, required: true, attrs: 'min="0"' })}
+        <div class="col-12"><h3 class="form-section"><span>B</span>Nguyên liệu</h3></div>
         ${field('Nguồn', 'sourceCategory', preset.sourceCategory || 'DOMESTIC', { type: 'select', col: 4, options: Object.entries(SOURCE_LABEL) })}
         ${field('Loại nguyên liệu', 'inputType', preset.rawType || PACK.inputs[0], { type: 'select', col: 4, options: uniq([...PACK.inputs, preset.rawType].filter(Boolean)) })}
         ${field('Loài gỗ', 'species', preset.species, { type: 'select', col: 4, options: speciesOptions() })}
         ${field(`Số ${PACK.packUnit}`, 'pkgCount', preset.pkgCount || 10, { type: 'number', col: 3, required: true, attrs: 'min="1"' })}
         ${field(`m³ / ${PACK.packUnit}`, 'pkgM3', preset.pkgM3 || 1, { type: 'number', col: 3, required: true, attrs: 'min="0.001" step="any"' })}
-        ${field('Tỷ lệ nguyên sinh (%), nếu tái chế', 'virginPct', preset.virginPct ?? '', { type: 'number', col: 6, attrs: 'min="0" max="100"' })}
-        ${poField(preset.poId)}
-        ${field('Ghi chú', 'note', preset.note || '', { col: 6 })}</div>`;
+        ${field('Độ ẩm đo tại cổng (%)', 'moisture', preset.moisture || '', { type: 'number', col: 3, attrs: 'min="0" step="0.1"' })}
+        ${field('Tỷ lệ nguyên sinh (%) nếu tái chế', 'virginPct', preset.virginPct ?? '', { type: 'number', col: 3, attrs: 'min="0" max="100"' })}
+        <div class="col-12"><h3 class="form-section"><span>C</span>Thửa đất của lô <small>chỉ hiện thửa được phép theo hợp đồng</small></h3><div class="pick-list" data-plot-list></div></div>
+        <div class="col-12"><h3 class="form-section"><span>D</span>Chứng từ đi kèm chuyến hàng</h3><div class="pick-list" data-doc-list></div></div>
+        ${field('Ghi chú', 'note', preset.note || '', { col: 12 })}</div>`;
 }
 
-/** Tiếp nhận container nhập khẩu: hồ sơ hải quan và tọa độ vùng khai thác gốc. */
-export function importContainerModal() {
-    const cnSuppliers = DB.suppliers.filter(s => s.type === 'IMPORT');
-    const cnPlots = DB.plots.filter(p => p.country !== 'VN');
-    const zoneA = DB.warehouseBays.filter(b => b.zone === 'ZONE_A' && b.source === 'IMPORT').map(b => b.id);
-    const defaultCont = 'TGHU' + Math.floor(100000 + Math.random() * 900000);
-    const defaultSeal = 'SL2611' + Math.floor(1000 + Math.random() * 9000);
-    const defaultCustoms = '10' + Math.floor(10000000 + Math.random() * 90000000);
-    const defaultBL = 'COSCO-SGN-' + Math.floor(100000 + Math.random() * 900000);
-    const defaultPhyto = 'KDTV-V2-2026/' + Math.floor(1000 + Math.random() * 9000);
-    const defaultCO = 'E264501' + Math.floor(10000 + Math.random() * 90000);
+/** Ghép form với khung kết quả: đổi NCC thì đổi hợp đồng, đổi hợp đồng thì đổi thửa; mọi thay đổi chấm lại ngay. */
+export function bindIntake(el, preset = {}) {
+    const form = el.querySelector('form');
+    const q = n => form.querySelector(`[name=${n}]`);
+    const plotBox = form.querySelector('[data-plot-list]'), docBox = form.querySelector('[data-doc-list]'), ctSel = form.querySelector('[data-contract-select]');
+    let plotSel = new Set(preset.plotIds || []), docSel = new Set(preset.docs || []);
+    const fillContracts = () => {
+        const list = supplierContracts(q('supplierId').value);
+        const want = ctSel.value || ctSel.dataset.value || (usableContracts(q('supplierId').value)[0] || list[0] || {}).id || '';
+        ctSel.innerHTML = '<option value="">Chưa gắn hợp đồng</option>' + list.map(c => { const a = assessContract(c, q('date').value || todayISO()); return `<option value="${esc(c.id)}" ${c.id === want ? 'selected' : ''}>${esc(c.no)} · ${esc(RESULT_LABEL[a.result])}${c.end < (q('date').value || todayISO()) ? ' · hết hạn' : ''}</option>`; }).join('');
+        ctSel.dataset.value = '';
+    };
+    const fillPlots = () => {
+        const c = getContract(ctSel.value);
+        const allowed = c ? contractPlotIds(c) : [];
+        const supplierPlots = DB.plots.filter(p => p.supplierId === q('supplierId').value).map(p => p.id);
+        const ids = uniq([...allowed, ...supplierPlots, ...plotSel]);
+        plotBox.innerHTML = ids.map(getPlot).filter(Boolean).map(p => { const ok = allowed.includes(p.id); return `<label class="${ok ? '' : 'not-allowed'}"><input class="form-check-input" type="checkbox" name="plotIds" value="${esc(p.id)}" ${plotSel.has(p.id) ? 'checked' : ''}><span>${esc(p.id)} <span class="sub">${esc(p.owner)} · ${fmt(p.areaHa)} ha · ${esc(p.geometry.type)}${ok ? '' : ' · không thuộc hợp đồng'}</span></span>${pill((p.forest && p.forest.result) || 'NONE')}</label>`; }).join('') || '<div class="empty">Bên bán chưa có thửa nào. Nạp tọa độ ở bước 1.</div>';
+    };
+    const fillDocs = () => {
+        const docs = requiredDocs(getSupplier(q('supplierId').value), { sourceCategory: q('sourceCategory').value });
+        docBox.innerHTML = docs.map(d => `<label><input class="form-check-input" type="checkbox" name="docs" value="${esc(d)}" ${docSel.has(d) ? 'checked' : ''}><span>${esc(d)}</span></label>`).join('');
+    };
+    const draft = () => {
+        const fd = new FormData(form);
+        const d = Object.fromEntries(fd.entries());
+        plotSel = new Set(fd.getAll('plotIds')); docSel = new Set(fd.getAll('docs'));
+        return { ...d, plotIds: [...plotSel], docs: [...docSel], m3: +d.pkgCount * +d.pkgM3 || 0, virginPct: d.virginPct === '' ? (d.sourceCategory === 'RECYCLED' ? null : undefined) : +d.virginPct, moisture: +d.moisture || null };
+    };
+    const render = () => {
+        const d = draft();
+        const gate = gateCheck(d);
+        const a = assessReceipt({ id: 'DRAFT', ...d, mitigations: [] });
+        const result = !gate.ok ? 'BLOCK' : a.level;
+        const head = { BLOCK: ['bad', 'fa-ban', 'BỊ CHẶN: xe không được vào kho'], HIGH: ['bad', 'fa-circle-xmark', 'Nhận vào Khu C (cách ly): Không đạt'], MEDIUM: ['warn', 'fa-triangle-exclamation', 'Nhận vào Khu B: Cần bổ sung'], LOW: ['ok', 'fa-circle-check', 'Nhận vào Khu B, chờ Tuân thủ ký Đạt'] }[result];
+        el.querySelector('[data-gate]').innerHTML = `<div class="risk-box ${head[0]}"><strong><i class="fa ${head[1]} me-1"></i>${head[2]}</strong>
+            <h4>Chốt chặn tại cổng</h4><ul>${gate.blocks.map(b => `<li class="lv-high"><i class="fa fa-ban"></i>${esc(b)}</li>`).join('')}${gate.warns.map(w => `<li class="lv-medium"><i class="fa fa-triangle-exclamation"></i>${esc(w)}</li>`).join('')}${!gate.blocks.length && !gate.warns.length ? '<li class="lv-low"><i class="fa fa-circle-check"></i>Qua mọi chốt chặn</li>' : ''}</ul>
+            <h4>Chấm sơ bộ lô</h4><ul>${a.factors.map(f => `<li class="lv-${f.level.toLowerCase()}"><i class="fa ${f.level === 'LOW' ? 'fa-circle-check' : f.level === 'MEDIUM' ? 'fa-triangle-exclamation' : 'fa-circle-xmark'}"></i><b>${esc(f.name)}</b>: ${esc(f.msg)}</li>`).join('')}</ul></div>`;
+        const btn = el.querySelector('.modal-footer .btn-primary');
+        if (btn) btn.disabled = !gate.ok;
+        const rej = el.querySelector('[data-reject]');
+        if (rej) rej.classList.toggle('d-none', gate.ok);
+    };
+    q('supplierId').addEventListener('change', () => { plotSel.clear(); fillContracts(); fillPlots(); fillDocs(); render(); });
+    ctSel.addEventListener('change', () => { fillPlots(); render(); });
+    q('sourceCategory').addEventListener('change', () => { draft(); fillDocs(); render(); });
+    q('date').addEventListener('change', () => { fillContracts(); render(); });
+    form.addEventListener('input', render);
+    form.addEventListener('change', render);
+    fillContracts(); fillPlots(); fillDocs(); render();
+    return draft;
+}
 
+const intakeBody = preset => `<div class="ct-layout"><div>${receiptForm(preset)}</div><aside class="ct-side"><div data-gate></div><div class="note-box mt-2 mb-0 small">Bị chặn: lập biên bản trả hàng, báo Tuân thủ. Qua chốt: tạo phiếu, in tem QR từng kiện, lô vào Khu B (hoặc Khu C nếu Không đạt) chờ Tuân thủ ký.</div></aside></div>`;
+
+function submitIntake(data, fd, extra) {
+    const poErr = poReceiptError(data.poId, data.supplierId, data.species);
+    if (poErr) { toast(poErr, 'err'); return false; }
+    return guarded('receipt', () => {
+        const r = createReceipt({ ...data, ...extra }, fd.getAll('plotIds'), fd.getAll('docs'), extra.ticket);
+        attachReceiptToPO(r, data.poId);
+        toast(`Đã tạo phiếu ${r.id}, xếp ô ${r.bay}. Bước tiếp: KCS và Tuân thủ ký.`);
+        refresh();
+    });
+}
+
+/** Bước 5: đối soát tại cổng cho một xe từ trạm cân. */
+export function gateModal(ticketId) {
+    const t = byId(DB.scaleTickets, ticketId);
     const m = openModal({
-        title: 'Tiếp nhận container nhập khẩu',
-        size: 'modal-xl',
-        submitText: 'Tạo phiếu & Nhập kho',
-        body: `
-        <div class="row g-2">
-            <div class="col-md-6 border-end pe-md-3">
-                <h4 class="h6 text-primary border-bottom pb-1 mb-2"><i class="fa fa-ship me-1"></i>Hải quan</h4>
-                <div class="row g-2">
-                    ${field('Nhà cung cấp', 'supplierId', (cnSuppliers[0] || {}).id, { type: 'select', col: 12, options: cnSuppliers.map(s => [s.id, `${s.name} (${s.address})`]), required: true })}
-                    ${poField('', 12)}
-                    ${field('Số Container', 'containerNo', defaultCont, { col: 6, required: true })}
-                    ${field('Số Seal chì Hải quan', 'sealNo', defaultSeal, { col: 6, required: true })}
-                    ${field('Biển số xe kéo container', 'plate', '51D-902.13', { col: 6, required: true })}
-                    ${field('Cảng dỡ hàng', 'port', 'Cảng Cát Lái (TP.HCM)', { col: 6, type: 'select', options: ['Cảng Cát Lái (TP.HCM)', 'Cảng Đình Vũ (Hải Phòng)', 'Cảng Cái Mép (BR-VT)'] })}
-                    ${field('Số tờ khai Hải quan', 'customsNo', defaultCustoms, { col: 6, required: true })}
-                    ${field('Số Vận đơn B/L', 'billNo', defaultBL, { col: 6, required: true })}
-                    ${field('Giấy CN Kiểm dịch thực vật', 'phytoNo', defaultPhyto, { col: 6, required: true })}
-                    ${field('Giấy CN Xuất xứ (C/O Form E)', 'coNo', defaultCO, { col: 6, required: true })}
-                </div>
-            </div>
-            <div class="col-md-6 ps-md-3">
-                <h4 class="h6 text-success border-bottom pb-1 mb-2"><i class="fa fa-tree me-1"></i>Nguyên liệu & nguồn gốc</h4>
-                <div class="row g-2">
-                    ${field('Loài gỗ', 'species', (cnPlots[0] || {}).species, { type: 'select', col: 7, options: speciesOptions() })}
-                    ${field('Loại nguyên liệu', 'inputType', PACK.inputs[0], { type: 'select', col: 5, options: PACK.inputs })}
-                    ${field('Lô đất gốc (WGS84)', 'plotId', (cnPlots[0] || {}).id, { type: 'select', col: 12, options: cnPlots.map(p => [p.id, `${p.id} - ${p.owner} (${p.place}, ${p.areaHa} ha - ${p.landDoc})`]), required: true })}
-                    ${field(`Số ${PACK.packUnit}`, 'pkgCount', 12, { type: 'number', col: 6, required: true, attrs: 'min="1"' })}
-                    ${field(`m³ / ${PACK.packUnit}`, 'pkgM3', 4, { type: 'number', col: 6, required: true, attrs: 'min="0.001" step="any"' })}
-                    ${field('Cân tổng xe (kg)', 'gross', 28500, { type: 'number', col: 6, required: true })}
-                    ${field('Cân xe rỗng (kg)', 'tare', 20700, { type: 'number', col: 6, required: true })}
-                    ${field('Độ ẩm MC (%)', 'moisture', 11.5, { type: 'number', col: 4, attrs: 'step="0.1"' })}
-                    ${field('Phẩm cấp', 'grade', 'A', { type: 'select', col: 4, options: ['A', 'A+', 'B'] })}
-                    ${field('Ô kho', 'bay', zoneA[0], { type: 'select', col: 4, options: zoneA })}
-                </div>
-            </div>
-            <div class="col-12 mt-2">
-                ${field('Ghi chú', 'note', '', { col: 12 })}
-            </div>
-        </div>`,
-        onSubmit: data => guarded('receipt', () => {
-            const poErr = poReceiptError(data.poId, data.supplierId, data.species);
-            if (poErr) throw new Error(poErr);
-            const fullPlate = `${data.plate} / Cont ${data.containerNo}`;
-            const r = createReceipt({
-                supplierId: data.supplierId,
-                plate: fullPlate,
-                trip: 1,
-                workshop: PACK.workshops[0],
-                date: todayISO(),
-                sourceCategory: 'IMPORT',
-                inputType: data.inputType,
-                gross: +data.gross,
-                tare: +data.tare,
-                species: data.species,
-                pkgCount: +data.pkgCount,
-                pkgM3: +data.pkgM3,
-                moisture: +data.moisture,
-                grade: data.grade,
-                bay: data.bay,
-                dataSource: 'Container nhập khẩu',
-                note: `Cont: ${data.containerNo} | Seal: ${data.sealNo} | TKHQ: ${data.customsNo} | B/L: ${data.billNo} | KDTV: ${data.phytoNo} | C/O: ${data.coNo} | Cảng: ${data.port}. ${data.note || ''}`
-            }, [data.plotId], [
-                'Hợp đồng mua bán', 'Hóa đơn', 'Packing list', 'Vận đơn', 'C/O', 'Tờ khai hải quan', 'Kiểm dịch thực vật', 'Giấy phép khai thác'
-            ]);
-            r.kcs = { by: 'KCS Cảng & Kho', at: todayISO() };
-            if (assessReceipt(r).level === 'LOW') { approveReceipt(r, 'Trưởng ban Tuân thủ', `Hồ sơ HQ ${data.customsNo}, lô đất ${data.plotId}`); r.done = true; }
-            attachReceiptToPO(r, data.poId);
-            toast(`Đã tiếp nhận container ${data.containerNo}`);
-            refresh();
-        })
+        title: `Đối soát cổng: xe ${t.plate} (${t.id})`, size: 'modal-xl', submitText: 'Tiếp nhận vào kho', body: intakeBody({ ...t, docs: [] }),
+        footerExtra: `<button type="button" class="btn btn-sm btn-outline-danger d-none" data-reject><i class="fa fa-rotate-left me-1"></i>Lập biên bản trả hàng</button>`,
+        onSubmit: (data, fd) => submitIntake(data, fd, { expectedKg: t.expectedKg, dataSource: 'Trạm cân', ticket: t })
     });
     bindPoSelect(m.el);
+    const draft = bindIntake(m.el, t);
+    m.el.querySelector('[data-reject]').onclick = () => { const g = gateCheck(draft()); m.hide(); setTimeout(() => rejectTicket(ticketId, g.blocks), 300); };
+}
+export const acceptTicket = gateModal;
+export function openCrossCheckModal(ticketId) {
+    const t = ticketId ? byId(DB.scaleTickets, ticketId) : DB.scaleTickets.find(x => !x.receiptId && !x.rejected);
+    if (!t) { toast('Không có xe nào chờ đối soát', 'err'); return; }
+    gateModal(t.id);
 }
 
-/** Xe từ khu vực Trạm cân chuyển sang khu vực Tiếp nhận. */
-export function acceptTicket(id) {
+/** Xe bị chặn: trả hàng, ghi lý do và báo Tuân thủ. */
+export function rejectTicket(id, blocks = []) {
     const t = byId(DB.scaleTickets, id);
-    const m = openModal({
-        title: `Tiếp nhận xe ${t.plate}`, size: 'modal-lg', submitText: 'Tiếp nhận', body: receiptForm(t),
+    openModal({
+        title: `Biên bản trả hàng: xe ${t.plate}`, submitText: 'Lập biên bản',
+        body: `<div class="note-box bad">${blocks.map(esc).join('<br>') || 'Xe không qua chốt chặn tại cổng'}</div><div class="row g-2">${field('Người lập', 'by', '', { required: true })}${field('Báo Tuân thủ', 'notify', 'Trưởng ban Tuân thủ', { required: true })}${field('Lý do / ghi chú', 'reason', blocks[0] || '', { type: 'textarea', col: 12, required: true })}</div>`,
         onSubmit: data => guarded('receipt', () => {
-            const poErr = poReceiptError(data.poId, data.supplierId, data.species);
-            if (poErr) throw new Error(poErr);
-            attachReceiptToPO(createReceipt({ ...data, expectedKg: t.expectedKg, dataSource: 'Trạm cân' }, t.plotIds.slice(), [], t), data.poId);
+            t.rejected = { at: todayISO(), by: data.by, reason: data.reason, notify: data.notify };
+            logAction(t.id, 'Trả hàng tại cổng', `${t.plate}: ${data.reason}; báo ${data.notify}`);
+            toast(`Đã lập biên bản trả hàng xe ${t.plate}`);
             refresh();
         })
     });
-    bindPoSelect(m.el);
 }
 
-export const EXCEL_COLUMNS = ['MaNCC', 'BienSo', 'LanVanChuyen', 'Xuong', 'NgayCan', 'CanTong', 'CanXe', 'TenKhoaHoc', 'Nguon', 'LoaiNL', 'SoKien', 'M3MoiKien', 'MaThuaDat', 'MaLenhMua'];
+/** Tiếp nhận container nhập khẩu: hồ sơ hải quan và tọa độ vùng khai thác gốc, đi qua cùng chốt chặn. */
+export function importContainerModal() {
+    const supplier = DB.suppliers.find(s => s.type === 'IMPORT' && usableContracts(s.id).length) || DB.suppliers.find(s => s.type === 'IMPORT');
+    const rnd = (a, b) => Math.floor(a + Math.random() * b);
+    const preset = { supplierId: supplier.id, plate: `51D-902.13 / Cont TGHU${rnd(100000, 900000)}`, sourceCategory: 'IMPORT', rawType: PACK.inputs[0], species: (DB.plots.find(p => p.supplierId === supplier.id) || {}).species, pkgCount: 12, pkgM3: 1.6256, gross: 28500, tare: 20700, moisture: 11.5, docs: ['Hợp đồng mua bán', 'Hóa đơn', 'Packing list', 'Vận đơn'] };
+    const customs = `<div class="col-12"><h3 class="form-section"><span>E</span>Hải quan</h3></div><div class="row g-2">
+        ${field('Số Seal chì', 'sealNo', 'SL2611' + rnd(1000, 9000), { col: 3, required: true })}
+        ${field('Cảng dỡ hàng', 'port', 'Cát Lái', { col: 3, type: 'select', options: ['Cát Lái', 'Cái Mép', 'Đình Vũ', 'Hữu Nghị (Lạng Sơn)', 'Móng Cái'] })}
+        ${field('Số tờ khai hải quan', 'customsNo', '10' + rnd(10000000, 90000000), { col: 3, required: true })}
+        ${field('Số vận đơn B/L', 'billNo', 'BL-' + rnd(100000, 900000), { col: 3, required: true })}
+        ${field('Giấy kiểm dịch thực vật', 'phytoNo', 'KDTV-' + rnd(1000, 9000), { col: 6 })}
+        ${field('C/O Form E', 'coNo', '', { col: 6, help: 'Để trống nếu chưa có: lô vào Khu B chờ bổ sung' })}</div>`;
+    const m = openModal({
+        title: 'Tiếp nhận container nhập khẩu', size: 'modal-xl', submitText: 'Tiếp nhận vào kho',
+        body: `<div class="note-box warn"><i class="fa fa-ship me-1"></i>Gỗ nhập khẩu phải truy về vùng rừng nơi cây được khai thác, không chấp nhận địa chỉ nhà máy hay cảng xuất.</div>` + intakeBody(preset).replace('</div><aside', customs + '</div><aside'),
+        onSubmit: (data, fd) => {
+            ['C/O', 'Tờ khai hải quan', 'Kiểm dịch thực vật'].forEach((d, i) => { if ([data.coNo, data.customsNo, data.phytoNo][i]) fd.append('docs', d); });
+            return submitIntake({ ...data, note: `Seal ${data.sealNo} | TKHQ ${data.customsNo} | B/L ${data.billNo} | KDTV ${data.phytoNo || '–'} | C/O ${data.coNo || 'chưa có'} | Cảng ${data.port}. ${data.note || ''}` }, fd, { dataSource: 'Container nhập khẩu' });
+        }
+    });
+    bindPoSelect(m.el);
+    bindIntake(m.el, preset);
+}
+
+export function manualReceipt() {
+    const m = openModal({
+        title: 'Phiếu tiếp nhận nhập tay', size: 'modal-xl', submitText: 'Tiếp nhận vào kho', body: intakeBody({}),
+        onSubmit: (data, fd) => submitIntake(data, fd, { dataSource: 'Nhập tay' })
+    });
+    bindPoSelect(m.el);
+    bindIntake(m.el);
+}
+
+export const EXCEL_COLUMNS = ['MaNCC', 'MaHopDong', 'BienSo', 'LanVanChuyen', 'Xuong', 'NgayCan', 'CanTong', 'CanXe', 'TenKhoaHoc', 'Nguon', 'LoaiNL', 'SoKien', 'M3MoiKien', 'MaThuaDat', 'MaLenhMua'];
 
 export function downloadReceiptTemplate() {
-    const sample = ['NCC-VN-001', '60C-111.22', 1, PACK.workshops[0], todayISO(), 16000, 8000, 'Hevea brasiliensis', 'DOMESTIC', PACK.inputs[0], 10, 1, 'PLOT-VN-DN-01;PLOT-VN-DN-02', 'LM-2610-001'];
+    const sample = ['NCC-VN-001', 'HD-01', '60C-111.22', 1, PACK.workshops[0], todayISO(), 16000, 8000, 'Hevea brasiliensis', 'DOMESTIC', PACK.inputs[0], 10, 1, 'PLOT-VN-DN-01;PLOT-VN-DN-02', 'LM-2610-001'];
     downloadFile('Mau_tiep_nhan.csv', '﻿' + EXCEL_COLUMNS.join(',') + '\n' + sample.join(',') + '\n', 'text/csv');
 }
 
@@ -244,6 +308,7 @@ export async function readReceiptRows(file) {
     return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false });
 }
 
+const rowPlots = row => String(row.MaThuaDat || '').split(';').map(x => x.trim()).filter(Boolean);
 export function checkReceiptRow(row) {
     const errors = [];
     if (!getSupplier(row.MaNCC)) errors.push('Mã NCC không tồn tại');
@@ -252,23 +317,24 @@ export function checkReceiptRow(row) {
     if (!(Number(row.CanTong) > Number(row.CanXe))) errors.push('Cân tổng phải lớn hơn cân xe');
     if (row.Nguon && !SOURCE_LABEL[row.Nguon]) errors.push('Nguồn phải là DOMESTIC, IMPORT hoặc RECYCLED');
     ['SoKien', 'M3MoiKien'].forEach(k => { if (!(Number(row[k]) > 0)) errors.push(`${k} không hợp lệ`); });
-    String(row.MaThuaDat || '').split(';').filter(Boolean).forEach(id => { if (!getPlot(id.trim())) errors.push(`Thửa ${id.trim()} không tồn tại`); });
+    rowPlots(row).forEach(id => { if (!getPlot(id)) errors.push(`Thửa ${id} không tồn tại`); });
     const poErr = poReceiptError(String(row.MaLenhMua || '').trim(), row.MaNCC, row.TenKhoaHoc);
     if (poErr) errors.push(poErr);
+    if (!errors.length) errors.push(...gateCheck({ supplierId: row.MaNCC, contractId: String(row.MaHopDong || '').trim(), plotIds: rowPlots(row), sourceCategory: row.Nguon || 'DOMESTIC', species: row.TenKhoaHoc, date: row.NgayCan, m3: row.SoKien * row.M3MoiKien }).blocks.map(b => 'Bị chặn: ' + b));
     return errors;
 }
 
-/** Tiếp nhận theo danh sách: tải danh sách, xem trước, chỉ tạo khi mọi dòng hợp lệ. */
+/** Tiếp nhận theo danh sách: mỗi dòng qua chốt chặn tại cổng, chỉ tạo khi mọi dòng hợp lệ. */
 export function showBatchReceipt() {
     let rows = [];
     const m = openModal({
         title: 'Tiếp nhận theo danh sách', size: 'modal-xl', submitText: 'Tạo phiếu',
-        body: `<div class="d-flex flex-wrap gap-2 align-items-center mb-2"><input type="file" class="form-control form-control-sm" style="max-width:320px" id="batch-file" accept=".xlsx,.xls,.csv" aria-label="Tệp danh sách"><button type="button" class="btn btn-sm btn-light" onclick="downloadReceiptTemplate()"><i class="fa fa-download me-1"></i>Tải mẫu</button></div><div id="batch-preview" class="empty">Chọn tệp Excel hoặc CSV theo mẫu</div>`,
+        body: `<div class="d-flex flex-wrap gap-2 align-items-center mb-2"><input type="file" class="form-control form-control-sm" style="max-width:320px" id="batch-file" accept=".xlsx,.xls,.csv" aria-label="Tệp danh sách"><button type="button" class="btn btn-sm btn-light" onclick="downloadReceiptTemplate()"><i class="fa fa-download me-1"></i>Tải mẫu</button><span class="small text-muted">Mỗi dòng đi qua chốt chặn tại cổng như một xe.</span></div><div id="batch-preview" class="empty">Chọn tệp Excel hoặc CSV theo mẫu</div>`,
         onSubmit: () => {
             if (!rows.length) { toast('Chưa có dữ liệu', 'err'); return false; }
-            if (rows.some(r => checkReceiptRow(r).length)) { toast('Còn dòng lỗi, sửa tệp rồi tải lại', 'err'); return false; }
+            if (rows.some(r => checkReceiptRow(r).length)) { toast('Còn dòng lỗi hoặc bị chặn, sửa tệp rồi tải lại', 'err'); return false; }
             return guarded('receipt', () => {
-                rows.forEach(r => attachReceiptToPO(createReceipt({ supplierId: r.MaNCC, plate: r.BienSo, trip: r.LanVanChuyen, workshop: r.Xuong, date: r.NgayCan, gross: r.CanTong, tare: r.CanXe, species: r.TenKhoaHoc, sourceCategory: r.Nguon || undefined, inputType: r.LoaiNL, pkgCount: r.SoKien, pkgM3: r.M3MoiKien, dataSource: 'Excel' }, String(r.MaThuaDat || '').split(';').map(x => x.trim()).filter(Boolean), []), String(r.MaLenhMua || '').trim()));
+                rows.forEach(r => attachReceiptToPO(createReceipt({ supplierId: r.MaNCC, contractId: String(r.MaHopDong || '').trim(), plate: r.BienSo, trip: r.LanVanChuyen, workshop: r.Xuong, date: r.NgayCan, gross: r.CanTong, tare: r.CanXe, species: r.TenKhoaHoc, sourceCategory: r.Nguon || undefined, inputType: r.LoaiNL, pkgCount: r.SoKien, pkgM3: r.M3MoiKien, dataSource: 'Excel' }, rowPlots(r), []), String(r.MaLenhMua || '').trim()));
                 toast(`Đã tạo ${rows.length} phiếu`);
                 refresh();
             });
@@ -280,30 +346,34 @@ export function showBatchReceipt() {
             rows = await readReceiptRows(e.target.files[0]);
             box.className = '';
             box.innerHTML = table([
-                { title: 'NCC', render: r => esc(r.MaNCC) }, { title: 'Biển số', render: r => esc(r.BienSo) }, { title: 'Lần', render: r => esc(r.LanVanChuyen) },
+                { title: 'NCC', render: r => esc(r.MaNCC) }, { title: 'Hợp đồng', render: r => esc(r.MaHopDong) }, { title: 'Biển số', render: r => esc(r.BienSo) },
                 { title: 'Loài', render: r => `<span class="sci">${esc(r.TenKhoaHoc)}</span>` }, { title: 'Kiện', num: true, render: r => esc(r.SoKien) }, { title: 'Thửa', render: r => esc(r.MaThuaDat) },
-                { title: 'Kiểm tra', render: r => { const er = checkReceiptRow(r); return er.length ? pill('FAIL', er[0]) : pill('PASS', 'Hợp lệ'); } }
+                { title: 'Kiểm tra', render: r => { const er = checkReceiptRow(r); return er.length ? pill('FAIL', er[0]) : pill('PASS', 'Qua chốt chặn'); } }
             ], rows);
         } catch (err) { toast(err.message, 'err'); }
     };
 }
 
-/** Chọn lô: gắn thửa đất cho phiếu, tương ứng modal chọn lô của cao su. */
+/** Bổ sung thửa cho lô đã nhận (bước 8). Thương lái chỉ chọn được thửa của hộ trong hợp đồng. */
 export function choosePlots(id) {
     const r = getReceipt(id), locked = receiptLockedBy(id);
     if (locked.length) { toast(`Lô đang khóa bởi đơn ${locked.map(o => o.id).join(', ')}`, 'err'); return; }
-    const plots = DB.plots.filter(p => p.supplierId === r.supplierId);
+    const c = getContract(r.contractId);
+    const allowed = c ? contractPlotIds(c) : DB.plots.filter(p => p.supplierId === r.supplierId).map(p => p.id);
+    const plots = uniq([...allowed, ...r.plotIds]).map(getPlot).filter(Boolean);
     const m = openModal({
-        title: `Chọn thửa đất cho ${id}`, size: 'modal-xl', submitText: 'Lưu',
-        body: `<div class="d-flex gap-2 align-items-center mb-2"><button type="button" class="btn btn-sm btn-light" data-all="1">Chọn tất cả</button><button type="button" class="btn btn-sm btn-light" data-all="0">Bỏ chọn tất cả</button><span>Đã chọn: <b id="plot-count">0</b> thửa</span></div>` + table([
+        title: `Gắn thửa đất cho ${id}`, size: 'modal-xl', submitText: 'Lưu và chấm lại',
+        body: `${c ? `<div class="note-box">Theo hợp đồng ${esc(c.no)}: ${allowed.length} thửa được phép.</div>` : ''}<div class="d-flex gap-2 align-items-center mb-2"><button type="button" class="btn btn-sm btn-light" data-all="1">Chọn tất cả</button><button type="button" class="btn btn-sm btn-light" data-all="0">Bỏ chọn tất cả</button><span>Đã chọn: <b id="plot-count">0</b> thửa</span></div>` + table([
             { title: '', render: p => `<input class="form-check-input" type="checkbox" name="plotIds" value="${esc(p.id)}" aria-label="${esc(p.id)}" ${r.plotIds.includes(p.id) ? 'checked' : ''}>` },
-            { title: 'Mã thửa', render: p => `<span class="code">${esc(p.id)}</span>` }, { title: 'Chủ đất', render: p => esc(p.owner) }, { title: 'Diện tích', num: true, render: p => `${fmt(p.areaHa)} ha` },
-            { title: 'Địa chỉ', render: p => esc(p.place) }, { title: 'EUDR', render: p => pill((p.forest && p.forest.result) || 'NONE') }
-        ], plots, 'Nhà cung cấp chưa có thửa đất'),
+            { title: 'Mã thửa', render: p => `<span class="code">${esc(p.id)}</span>${allowed.includes(p.id) ? '' : pill('FAIL', 'Ngoài hợp đồng')}` }, { title: 'Chủ đất', render: p => esc(p.owner) }, { title: 'Diện tích', num: true, render: p => `${fmt(p.areaHa)} ha` },
+            { title: 'Địa chỉ', render: p => esc(p.place) }, { title: 'Bản đồ rừng', render: p => pill((p.forest && p.forest.result) || 'NONE') }
+        ], plots, 'Bên bán chưa có thửa đất'),
         onSubmit: (data, fd) => guarded('receipt', () => {
             r.plotIds = fd.getAll('plotIds');
             r.approval = null;
-            logAction(id, 'Chọn thửa đất', r.plotIds.join(', ') || 'Bỏ hết');
+            logAction(id, 'Gắn thửa đất', r.plotIds.join(', ') || 'Bỏ hết');
+            const a = assessReceipt(r);
+            toast(`Đã chấm lại ${id}: ${RESULT_LABEL[LEVEL_RESULT[a.level]]}`, a.level === 'HIGH' ? 'err' : 'ok');
             refresh();
         })
     });
@@ -314,288 +384,152 @@ export function choosePlots(id) {
     count();
 }
 
-/** Form KCS: độ ẩm, phẩm cấp, kiểm đếm, ô kho, chứng từ. Thay cho TSC, DRC, quy khô, pH của mủ. */
+/** KCS và bổ sung chứng từ của chuyến hàng. */
 export function kcsForm(id) {
-    const r = getReceipt(id);
+    const r = getReceipt(id), c = getContract(r.contractId);
     openModal({
-        title: `KCS ${id}`, size: 'modal-lg', submitText: 'Lưu KCS',
+        title: `KCS & chứng từ ${id}`, size: 'modal-lg', submitText: 'Lưu và chấm lại',
         body: `<div class="row g-2">
-            ${field('Độ ẩm MC (%)', 'moisture', r.moisture, { type: 'number', col: 3, required: true, attrs: 'step="0.1" min="0"' })}
-            ${field('Phẩm cấp', 'grade', r.grade, { col: 3, required: true })}
-            ${field('Ô kho', 'bay', r.bay, { col: 3, required: true })}
-            ${field('Thể tích quy đổi (m³)', 'm3', round(receiptM3(r), 3), { col: 3, attrs: 'readonly' })}
-            ${field('Khối lượng tịnh (kg)', 'net', receiptNetKg(r), { col: 3, attrs: 'readonly' })}
-            ${field('Người KCS', 'by', r.kcs ? r.kcs.by : '', { required: true })}
+            ${field(`Độ ẩm MC (%)${c && c.moist ? `, hợp đồng tối đa ${c.moist}%` : ''}`, 'moisture', r.moisture, { type: 'number', col: 4, required: true, attrs: 'step="0.1" min="0"' })}
+            ${field('Phẩm cấp', 'grade', r.grade, { col: 4, required: true })}
+            ${field('Người KCS', 'by', r.kcs ? r.kcs.by : '', { required: true, col: 4 })}
+            ${field('Thể tích (m³)', 'm3', round(receiptM3(r), 3), { col: 4, attrs: 'readonly' })}
+            ${field('Khối lượng tịnh (kg)', 'net', receiptNetKg(r), { col: 4, attrs: 'readonly' })}
+            ${field('Ô kho hiện tại', 'bayView', r.bay, { col: 4, attrs: 'readonly', help: 'Ô đổi theo quyết định của Tuân thủ' })}
             <div class="col-12"><label class="form-label">Chứng từ đã nhận</label><div class="pick-list">${requiredDocs(getSupplier(r.supplierId), r).map(d => `<label><input class="form-check-input" type="checkbox" name="docs" value="${esc(d)}" ${r.docs.includes(d) ? 'checked' : ''}><span>${esc(d)}</span></label>`).join('')}</div></div></div>`,
         onSubmit: (data, fd) => guarded('receipt', () => {
-            Object.assign(r, { moisture: +data.moisture, grade: data.grade, bay: data.bay, docs: fd.getAll('docs'), kcs: { by: data.by, at: todayISO() } });
-            logAction(id, 'Lưu KCS', `MC ${r.moisture}%, hạng ${r.grade}, ô ${r.bay}`);
+            Object.assign(r, { moisture: +data.moisture, grade: data.grade, docs: fd.getAll('docs'), kcs: { by: data.by, at: todayISO() } });
+            logAction(id, 'Lưu KCS & chứng từ', `MC ${r.moisture}%, hạng ${r.grade}; ${r.docs.length} chứng từ`);
+            const a = assessReceipt(r);
+            toast(`Đã chấm lại ${id}: ${RESULT_LABEL[LEVEL_RESULT[a.level]]}`, a.level === 'HIGH' ? 'err' : 'ok');
             refresh();
         })
     });
 }
 
-export function showReceipt(id) {
-    const r = getReceipt(id), a = assessReceipt(r), s = receiptStatus(r), sp = getSupplier(r.supplierId);
-    const isImport = sp && (sp.type === 'IMPORT' || sp.country === 'CN');
-    const importBox = isImport ? '<div class="note-box ok mb-3"><i class="fa fa-ship me-1"></i>Nhập khẩu: Cont/Seal, tờ khai HQ, KDTV, C/O Form E, giấy phép khai thác, WGS84</div>' : '';
+/** Các điều kiện bắt buộc của bộ tiêu chuẩn: thiếu một trong bốn thì lô bị giữ lại. */
+const MUST = [['Tọa độ lô đất', 'Tọa độ', 'fa-location-dot'], ['Ngày khai thác', 'Ngày khai thác', 'fa-calendar'], ['Bản đồ rừng mốc 31/12/2020', 'Không phá rừng', 'fa-tree'], ['Hồ sơ hợp pháp', 'Hợp pháp', 'fa-scale-balanced']];
+const MUST_RECYCLED = [['Chứng nhận tái chế', 'Chứng nhận tái chế', 'fa-recycle'], ['Hồ sơ tái chế', 'Hồ sơ tái chế', 'fa-folder']];
+const FIX = { 'Tọa độ lô đất': ['choosePlots', 'Gắn thửa'], 'Độ phức tạp chuỗi': ['choosePlots', 'Đổi thửa'], 'Hồ sơ hợp pháp': ['kcsForm', 'Bổ sung chứng từ'], 'Hồ sơ tái chế': ['kcsForm', 'Bổ sung chứng từ'], 'Chứng nhận tái chế': ['kcsForm', 'Bổ sung chứng từ'], 'Độ ẩm so với hợp đồng': ['kcsForm', 'Đo lại'] };
 
+/** Bước 6 và 8: hồ sơ đánh giá một lô và quyết định của Tuân thủ. */
+export function showReceipt(id) {
+    const r = getReceipt(id), a = assessReceipt(r), s = receiptStatus(r), sp = getSupplier(r.supplierId), c = getContract(r.contractId);
+    const st = sp ? supplierStanding(sp, r.date) : null;
+    const byName = Object.fromEntries(a.factors.map(f => [f.name, f]));
+    const recycledOnly = !!byName['Chứng nhận tái chế'];
+    const tiles = (recycledOnly ? MUST_RECYCLED : MUST).map(([k, label, icon]) => { const f = byName[k] || { level: 'HIGH', msg: 'Chưa có' }; return `<div class="must lv-${f.level.toLowerCase()}"><i class="fa ${icon}"></i><b>${esc(label)}</b><small>${esc(f.msg)}</small></div>`; }).join('');
+    const ca = c ? assessContract(c, r.date) : null;
+    const decision = r.decision || (r.approval ? { result: 'PASS', action: 'PRODUCE', ...r.approval } : null);
+    const canPass = a.level !== 'HIGH' && !!r.kcs && (a.level === 'LOW' || r.mitigations.length > 0);
+    const passHint = a.level === 'HIGH' ? 'Còn yếu tố Cao' : !r.kcs ? 'Chưa có KCS' : a.level === 'MEDIUM' && !r.mitigations.length ? 'Cần ghi biện pháp giảm thiểu trước' : '';
     const m = openModal({
-        title: `Đánh giá rủi ro ${id}`, size: 'modal-lg',
-        body: `<div class="d-flex flex-wrap gap-2 align-items-center mb-2">${pill(s)}<span class="text-muted">${esc(sp ? sp.name : '')}, ${r.pkgCount} kiện, ${fmt(receiptM3(r))} m³, ${fmt(receiptNetKg(r), 0)} kg</span></div>
-            ${importBox}
-            ${r.approval ? `<div class="note-box ok">Đã duyệt bởi ${esc(r.approval.by)} ngày ${esc(r.approval.at)}: ${esc(r.approval.reason)}</div>` : ''}
-            ${table([{ title: 'Yếu tố', render: f => esc(f.name) }, { title: 'Mức', render: f => pill(f.level) }, { title: 'Chi tiết', render: f => esc(f.msg) }], a.factors)}
-            <h3 class="h6 mt-3">Biện pháp giảm thiểu</h3>
-            ${r.mitigations.length ? `<ul class="mb-2">${r.mitigations.map(x => `<li>${esc(x.action)}: ${esc(x.result)} (${esc(x.by)}, ${esc(x.at)})</li>`).join('')}</ul>` : '<p class="text-muted">Chưa có.</p>'}`,
-        footerExtra: `${a.level === 'MEDIUM' ? '<button type="button" class="btn btn-sm btn-light" id="rc-mit">Ghi giảm thiểu</button>' : ''}${a.level !== 'HIGH' && s !== 'PASS' ? '<button type="button" class="btn btn-sm btn-primary" id="rc-ok">Ký duyệt Đạt</button>' : ''}`
+        title: `Hồ sơ đánh giá lô ${id}`, size: 'modal-xl',
+        body: `<div class="lot-head">${pill(s)} <span class="code">${esc(r.plate)}</span><span>${esc(sp ? sp.name : '')} · ${esc(receiptSource(r))} · ${r.pkgCount} ${PACK.packUnit}, ${fmt(receiptM3(r))} m³, ${fmt(receiptNetKg(r), 0)} kg · ô ${tag(r.bay || '–')}</span></div>
+        <div class="ct-layout"><div>
+            <h3 class="form-section"><span>1</span>Nguồn & hợp đồng</h3>
+            <div class="src-row"><div><small>Nguồn cung</small>${st ? `${pill({ OK: 'PASS', COND: 'MEDIUM', STOP: 'FAIL' }[st.key], st.label)}<span class="sub">${esc(kindOf(sp))}${st.reasons[0] ? ' · ' + esc(st.reasons[0]) : ''}</span>` : '–'}</div>
+                <div><small>Hợp đồng mua</small>${c ? `<button type="button" class="btn btn-link p-0" data-contract>${esc(c.no)}</button> ${levelPill(ca.level)}<span class="sub">${esc((ca.issues.find(i => i.level === ca.level) || {}).msg || 'Đủ điều khoản và hồ sơ')}</span>` : pill('FAIL', 'Chưa gắn hợp đồng')}</div></div>
+            <h3 class="form-section"><span>2</span>Điều kiện bắt buộc</h3><div class="must-row">${tiles}</div>
+            <h3 class="form-section"><span>3</span>Chấm từng yếu tố</h3>
+            ${table([{ title: 'Yếu tố', render: f => esc(f.name) }, { title: 'Mức', render: f => pill(f.level) }, { title: 'Chi tiết', render: f => esc(f.msg) },
+                { title: '', render: f => f.level !== 'LOW' && FIX[f.name] ? `<button type="button" class="btn btn-sm btn-light" data-fix="${FIX[f.name][0]}">${FIX[f.name][1]}</button>` : '' }], a.factors)}
+            ${(r.gateWarns || []).length ? `<div class="note-box warn">Cảnh báo tại cổng: ${r.gateWarns.map(esc).join('; ')}</div>` : ''}
+            <h3 class="form-section"><span>4</span>Biện pháp giảm thiểu</h3>
+            ${r.mitigations.length ? table([{ title: 'Biện pháp', render: x => esc(x.action) }, { title: 'Kết quả', render: x => esc(x.result) }, { title: 'Người làm', render: x => `${esc(x.by)}<span class="sub">${esc(x.at)}</span>` }, { title: 'Người duyệt', render: x => esc(x.approvedBy || '–') }], r.mitigations) : '<p class="text-muted small">Chưa có. Mức Cần bổ sung phải có biện pháp giảm thiểu trước khi ký Đạt.</p>'}
+            <button type="button" class="btn btn-sm btn-light" data-mit><i class="fa fa-plus me-1"></i>Ghi biện pháp giảm thiểu</button>
+        </div>
+        <aside class="ct-side">
+            ${riskBox('Kết quả chấm lô', a.level, nonLow(a).map(f => ({ level: f.level, msg: `${f.name}: ${f.msg}` })), 'Đủ điều kiện. Chờ Tuân thủ ký Đạt.')}
+            <div class="decide-box"><h4>Quyết định của Tuân thủ</h4>
+                ${decision ? `<div class="note-box ${decision.result === 'PASS' ? 'ok' : decision.result === 'FAIL' ? 'bad' : 'warn'} mb-2"><b>${esc(RESULT_LABEL[decision.result])}</b> · ${esc(DECISION_ACTIONS[decision.action] || '')}<br><small>${esc(decision.by)}, ${esc(decision.at)}: ${esc(decision.reason)}</small></div>` : '<p class="small text-muted">Chưa có quyết định.</p>'}
+                <div class="d-grid gap-1">
+                    <button type="button" class="btn btn-sm btn-success" data-decide="PASS" ${canPass ? '' : 'disabled'}><i class="fa fa-circle-check me-1"></i>Ký Đạt → Khu A</button>${passHint ? `<small class="text-muted">${esc(passHint)}</small>` : ''}
+                    <button type="button" class="btn btn-sm btn-warning" data-decide="PENDING" ${a.level === 'HIGH' ? 'disabled' : ''}><i class="fa fa-triangle-exclamation me-1"></i>Cần bổ sung → Khu B</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" data-decide="FAIL"><i class="fa fa-ban me-1"></i>Không đạt → Khu C</button>
+                </div></div>
+        </aside></div>`
     });
-    const mit = m.el.querySelector('#rc-mit'), ok = m.el.querySelector('#rc-ok');
-    if (mit) mit.onclick = () => { m.hide(); addMitigation(id); };
-    if (ok) ok.onclick = () => { m.hide(); approveDialog(id, a.level); };
+    const go = fn => { m.hide(); setTimeout(fn, 300); };
+    m.el.querySelectorAll('[data-fix]').forEach(b => { b.onclick = () => go(() => window[b.dataset.fix](id)); });
+    m.el.querySelector('[data-mit]').onclick = () => go(() => addMitigation(id));
+    m.el.querySelectorAll('[data-decide]').forEach(b => { b.onclick = () => go(() => decideDialog(id, b.dataset.decide)); });
+    const ctBtn = m.el.querySelector('[data-contract]');
+    if (ctBtn) ctBtn.onclick = () => go(() => window.showContract(c.id));
 }
 
 export function addMitigation(id) {
     openModal({
         title: `Giảm thiểu rủi ro ${id}`, submitText: 'Lưu',
-        body: `<div class="row g-2">${field('Biện pháp', 'action', '', { type: 'select', col: 12, options: ['Thu thập bổ sung chứng từ, bản đồ, tọa độ', 'Kiểm tra chéo hợp đồng, hóa đơn, chứng từ', 'Kiểm tra nội bộ / kiểm toán độc lập', 'Đổi nhà cung cấp'] })}${field('Người thực hiện', 'by', '', { required: true })}${field('Ngày', 'at', todayISO(), { type: 'date', required: true })}${field('Kết quả', 'result', '', { required: true, col: 12 })}</div>`,
+        body: `<div class="row g-2">${field('Biện pháp', 'action', '', { type: 'select', col: 12, options: ['Thu thập bổ sung chứng từ, bản đồ, tọa độ', 'Kiểm tra chéo hợp đồng, hóa đơn, chứng từ', 'Kiểm tra nội bộ / kiểm toán độc lập', 'Đổi nhà cung cấp'] })}${field('Người thực hiện', 'by', '', { required: true })}${field('Ngày', 'at', todayISO(), { type: 'date', required: true })}${field('Kết quả', 'result', '', { required: true, col: 12 })}${field('Người phê duyệt', 'approvedBy', '', { required: true, col: 12 })}</div>`,
         onSubmit: data => guarded('approve', () => {
             getReceipt(id).mitigations.push(data);
-            logAction(id, 'Giảm thiểu rủi ro', `${data.action}: ${data.result}`);
+            logAction(id, 'Giảm thiểu rủi ro', `${data.action}: ${data.result}; duyệt ${data.approvedBy}`);
             refresh();
         })
     });
 }
 
-export function approveDialog(id, level) {
+/** Ký quyết định: Đạt (Khu A), Cần bổ sung (Khu B) hoặc Không đạt (Khu C, chọn cách xử lý). */
+export function decideDialog(id, result) {
     const r = getReceipt(id);
-    if (!r.kcs) { toast('Lô chưa có kết quả KCS', 'err'); return; }
+    if (result === 'PASS' && !r.kcs) { toast('Lô chưa có kết quả KCS', 'err'); return; }
+    const title = { PASS: 'Ký Đạt, chuyển Khu A', PENDING: 'Xếp Cần bổ sung, giữ Khu B', FAIL: 'Xếp Không đạt, cách ly Khu C' }[result];
     openModal({
-        title: `Duyệt hoàn thành ${id}`, submitText: 'Ký duyệt',
-        body: `<div class="row g-2">${field('Người duyệt', 'by', '', { required: true, col: 12 })}${field('Lý do', 'reason', '', { col: 12, required: level === 'MEDIUM', type: 'textarea' })}</div>`,
-        onSubmit: data => guarded('approve', () => { approveReceipt(r, data.by, data.reason); r.done = true; refresh(); })
+        title: `${title}: ${id}`, submitText: 'Ký quyết định',
+        body: `<div class="row g-2">
+            ${result === 'FAIL' ? field('Cách xử lý', 'action', 'RETURN', { type: 'select', col: 12, options: [['RETURN', DECISION_ACTIONS.RETURN], ['NON_EU', DECISION_ACTIONS.NON_EU], ['QUARANTINE', DECISION_ACTIONS.QUARANTINE]] }) : ''}
+            ${result === 'PENDING' ? '<div class="col-12"><div class="note-box warn mb-0">Thu mua đòi bổ sung hồ sơ trong 7 ngày. Bổ sung xong thì hệ thống chấm lại, Tuân thủ ký Đạt.</div></div>' : ''}
+            ${field('Người quyết định (Tuân thủ)', 'by', '', { required: true, col: 12 })}
+            ${field('Lý do', 'reason', result === 'PASS' && assessReceipt(r).level === 'LOW' ? 'Đủ hồ sơ theo bộ tiêu chuẩn' : '', { type: 'textarea', col: 12, required: true })}</div>`,
+        onSubmit: data => guarded('approve', () => { decideReceipt(r, { result, action: data.action, by: data.by, reason: data.reason }); toast(`${id}: ${RESULT_LABEL[result]}, ô ${r.bay}`); refresh(); })
     });
 }
-
-
-/** Đối soát tại cổng nhận (1-1 hoặc N-1) - Trụ cột 2 Thiện Hưng & CCP-1 */
-export function openCrossCheckModal(ticketId = null) {
-    const tickets = DB.scaleTickets.filter(t => !t.receiptId);
-    if (!tickets.length) {
-        toast('Hiện không có chuyến xe nào đang chờ đối soát tại trạm cân', 'info');
-        return;
-    }
-    const curT = ticketId ? tickets.find(t => t.id === ticketId) : tickets[0];
-    const ticketOptions = tickets.map(t => `<option value="${t.id}" ${curT && curT.id === t.id ? 'selected' : ''}>${t.id} - ${t.plate} (${t.rawType || 'Nguyên liệu'})</option>`).join('');
-
-    function renderModalBody(t) {
-        const s = getSupplier(t.supplierId) || { name: 'Chưa xác định', contractNo: '–', type: 'DOMESTIC' };
-        const src = t.sourceCategory === 'IMPORT' ? 'Nhập khẩu' : (t.sourceCategory === 'RECYCLED' ? 'Tái chế, phụ phẩm' : 'Rừng trồng trong nước');
-        const plots = (t.plotIds || []).map(id => DB.plots.find(p => p.id === id)).filter(Boolean);
-        const batchCode = t.batchCode || ('KIEN-' + t.supplierId.slice(-3) + '-' + t.id.slice(-4));
-        
-        // Checklist theo 3 nguồn nguyên liệu (Ảnh 5)
-        let checkListHtml = '';
-        if (src === 'Rừng trồng trong nước') {
-            checkListHtml = `
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Tọa độ WGS84 & Ranh giới lô</span>
-                    <span class="badge bg-success-subtle text-success">${plots.length} thửa liên kết</span>
-                </li>
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Kỳ khai thác lâm sản</span>
-                    <span class="badge bg-success-subtle text-success">Tháng 10-11/2026</span>
-                </li>
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Quyền sử dụng đất / Rừng</span>
-                    <span class="badge bg-success-subtle text-success">Đã đối chiếu Sổ đỏ</span>
-                </li>
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Bảng kê lâm sản xác nhận xã</span>
-                    <span class="badge bg-success-subtle text-success">Đầy đủ</span>
-                </li>
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Bằng chứng không phá rừng sau 31/12/2020</span>
-                    <span class="badge bg-success-subtle text-success">Vệ tinh Sentinel đạt</span>
-                </li>
-            `;
-        } else if (src === 'Nhập khẩu') {
-            checkListHtml = `
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Tên khoa học Latin loài gỗ</span>
-                    <span class="badge bg-success-subtle text-success">Populus adenopoda</span>
-                </li>
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Tọa độ vùng khai thác gốc</span>
-                    <span class="badge bg-success-subtle text-success">Nam Ninh, Quảng Tây</span>
-                </li>
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Tờ khai Hải quan thông quan</span>
-                    <span class="badge bg-success-subtle text-success">Tờ khai điện tử đạt</span>
-                </li>
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Kiểm dịch thực vật (Phytosanitary)</span>
-                    <span class="badge bg-success-subtle text-success">Đạt chuẩn kiểm dịch</span>
-                </li>
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Chứng nhận xuất xứ C/O</span>
-                    <span class="badge bg-success-subtle text-success">Form E hợp lệ</span>
-                </li>
-            `;
-        } else {
-            checkListHtml = `
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Chứng nhận tái chế FSC/PEFC Recycled</span>
-                    <span class="badge bg-success-subtle text-success">Chứng chỉ CoC hợp lệ</span>
-                </li>
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Tỷ lệ nguyên sinh & tái chế</span>
-                    <span class="badge bg-success-subtle text-success">100% Post-consumer</span>
-                </li>
-                <li class="list-group-item d-flex justify-content-between align-items-center py-1.5">
-                    <span><i class="fa fa-check-circle text-success me-2"></i>Xác nhận nguồn dăm / phôi phụ phẩm</span>
-                    <span class="badge bg-success-subtle text-success">Biên bản bàn giao xưởng</span>
-                </li>
-            `;
-        }
-
-        return `
-            <div class="mb-3">
-                <label class="form-label fw-bold small text-muted">Chuyến xe</label>
-                <select class="form-select form-select-sm" id="cross-check-select" onchange="onSwitchTicket(this.value)">
-                    ${ticketOptions}
-                </select>
-            </div>
-            
-            <div class="row g-2 mb-3">
-                <div class="col-md-6">
-                    <div class="p-2.5 rounded bg-light border">
-                        <small class="text-muted d-block">Mã kiện</small>
-                        <strong class="text-primary font-monospace fs-6"><i class="fa fa-qrcode me-1"></i>${batchCode}</strong>
-                        <div class="mt-1 small">Biển số: <b class="code">${t.plate}</b> · Chuyến: <b>${t.trip}</b></div>
-                        <div class="small">Khối lượng tịnh: <b class="text-success">${fmt(t.gross - t.tare, 0)} kg</b></div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="p-2.5 rounded bg-light border">
-                        <small class="text-muted d-block">Hợp đồng</small>
-                        <strong class="text-dark"><i class="fa fa-file-contract me-1"></i>${s.contractNo || 'HĐ-TP-2026/01'}</strong>
-                        <div class="mt-1 small">NCC: <b>${esc(s.name)}</b></div>
-                        <div class="small">Nguồn: <span class="badge bg-primary bg-opacity-10 text-primary">${src}</span></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="mb-3">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <strong class="small text-muted"><i class="fa fa-folder-check me-1"></i>Hồ sơ: ${src}</strong>
-                    <span class="badge bg-success"><i class="fa fa-check me-1"></i>Khớp 100%</span>
-                </div>
-                <ul class="list-group list-group-flush border rounded small">
-                    ${checkListHtml}
-                </ul>
-            </div>
-
-            <div class="p-2.5 rounded bg-success bg-opacity-10 border border-success-subtle mb-2">
-                <div class="d-flex align-items-center justify-content-between">
-                    <div>
-                        <strong class="text-success d-block"><i class="fa fa-circle-check me-1"></i>Đạt 1-1</strong>
-                        
-                    </div>
-                    <button class="btn btn-sm btn-success text-nowrap" onclick="confirmGateAccept('${t.id}')">
-                        <i class="fa fa-arrow-down-to-bracket me-1"></i>Nhập Khu A
-                    </button>
-                </div>
-            </div>
-        `;
-    }
-
-    const { modal, el } = openModal({
-        title: 'Đối soát cổng nhận 1-1',
-        size: 'modal-lg',
-        body: `<div id="cross-check-container">${renderModalBody(curT)}</div>`
-    });
-
-    window.onSwitchTicket = function(newTId) {
-        const found = tickets.find(t => t.id === newTId);
-        if (found) {
-            el.querySelector('#cross-check-container').innerHTML = renderModalBody(found);
-        }
-    };
-
-    window.confirmGateAccept = function(tId) {
-        modal.hide();
-        acceptTicket(tId);
-    };
-}
+export const approveDialog = id => decideDialog(id, 'PASS');
 
 export function page_receipts() {
     startPage('tiep-nhan', {
-        title: 'Trạm cân & Tiếp nhận',
-        actions: `<button class="btn btn-sm btn-outline-success me-1" onclick="openCrossCheckModal()"><i class="fa fa-qrcode me-1"></i>Đối soát 1-1</button><button class="btn btn-sm btn-info text-white" onclick="importContainerModal()"><i class="fa fa-ship me-1"></i>Container nhập khẩu</button>` + newBtn('Tải danh sách', 'showBatchReceipt()') + lightBtn('Nhập tay', 'manualReceipt()', 'fa-pen')
+        title: 'Tiếp nhận nguyên liệu',
+        actions: `<button class="btn btn-sm btn-info text-white" onclick="importContainerModal()"><i class="fa fa-ship me-1"></i>Container nhập khẩu</button>` + newBtn('Tải danh sách', 'showBatchReceipt()') + lightBtn('Nhập tay', 'manualReceipt()', 'fa-pen')
     }, root => {
         const f = recvFilter;
-        const tickets = DB.scaleTickets.filter(t => !t.receiptId && (!f.scaleDate || t.date === f.scaleDate));
+        const tickets = DB.scaleTickets.filter(t => !t.receiptId && !t.rejected && (!f.scaleDate || t.date === f.scaleDate));
+        const rejected = DB.scaleTickets.filter(t => t.rejected);
+        const gateOf = t => gateCheck({ ...t, m3: (t.pkgCount || 0) * (t.pkgM3 || 0), species: undefined });
         const code = f.code.trim().toLowerCase();
-        const rows = DB.receipts.filter(r => (f.status === 'WAIT' ? !r.done : r.done) && (!f.source || receiptSource(r) === f.source) && r.date >= f.from && r.date <= f.to && (!code || r.id.toLowerCase().includes(code) || r.plate.toLowerCase().includes(code))).slice().reverse();
-        
-        
-
-        const count = (key, list = DB.receipts) => list.filter(r => r.sourceCategory === key).length;
-        const statusCount = s => DB.receipts.filter(r => receiptStatus(r) === s).length;
-        const SOURCE_ICON = { DOMESTIC: 'fa-tree', IMPORT: 'fa-ship', RECYCLED: 'fa-recycle' };
-        const classify = `<section class="classify">
-            <div class="classify-col"><h3><span>1</span>Xác định nguồn</h3>${Object.entries(SOURCE_LABEL).map(([k, label]) => `<div class="classify-item"><i class="fa ${SOURCE_ICON[k]}"></i><div><b>${esc(label)}</b> <em>${count(k)} lô</em><small>${esc(SOURCE_DOCS[k].slice(0, 4).join(', '))}${SOURCE_DOCS[k].length > 4 ? '...' : ''}</small></div></div>`).join('')}</div>
-            <div class="classify-col"><h3><span>2</span>Chấm từng lô</h3><ul><li>Tọa độ, polygon trên 4 ha</li><li>Ngày khai thác, tên loài</li><li>Đối chiếu rừng 31/12/2020</li><li>Hồ sơ theo nguồn, cam kết</li></ul></div>
-            <div class="classify-col"><h3><span>3</span>Xếp kho</h3>
-                <div class="classify-item ok"><b>Đạt: Khu A</b> <em>${statusCount('PASS')} lô</em><small>Được cấp cho lệnh EU</small></div>
-                <div class="classify-item warn"><b>Cần bổ sung: Khu B</b> <em>${statusCount('PENDING')} lô</em><small>Thiếu giấy phụ, chưa sản xuất</small></div>
-                <div class="classify-item bad"><b>Không đạt: Khu C</b> <em>${statusCount('FAIL')} lô</em><small>Trả lại hoặc đơn ngoài EU</small></div></div>
-        </section>`;
-        root.innerHTML = classify + `<section class="panel zone-head-scale"><header class="panel-head"><h2><i class="fa fa-scale-balanced me-2"></i>Khu vực trạm cân</h2><label class="d-flex gap-2 align-items-center m-0">Ngày cân <input type="date" class="form-control form-control-sm" value="${esc(f.scaleDate)}" onchange="setRecv('scaleDate',this.value)"></label></header><div class="panel-body p-0">` + table([
-            { title: 'Biển số', render: t => `<span class="code">${esc(t.plate)}</span><span class="sub">${esc(SOURCE_LABEL[t.sourceCategory] || '')}</span>` },
-            { title: 'Xưởng', render: t => esc(t.workshop) }, { title: 'Lần VC', num: true, render: t => t.trip },
-            { title: 'Mã NCC', render: t => esc(t.supplierId) }, { title: 'Tên', render: t => esc(supplierName(t.supplierId)) }, { title: 'MST', render: t => esc((getSupplier(t.supplierId) || {}).taxCode) }, { title: 'Điện thoại', render: t => esc(t.phone) },
-            { title: 'KL dự kiến', num: true, render: t => fmt(t.expectedKg, 0) + ' kg' }, { title: 'KL thực tế', num: true, render: t => `<b>${fmt(t.gross - t.tare, 0)} kg</b>` }, { title: 'Ngày cân', render: t => esc(t.date) },
-            { title: 'Thửa đã liên kết', render: t => t.plotIds.map(tag).join('') || pill('FAIL', 'Chưa có') },
-            { title: 'Thao tác', render: t => `<button class="btn btn-sm btn-primary" onclick="acceptTicket('${t.id}')">Tiếp nhận</button>` }
-        ], tickets, 'Không có xe chờ tiếp nhận') + `</div></section>
-        <section class="panel zone-head-recv"><header class="panel-head"><h2><i class="fa fa-truck-ramp-box me-2"></i>Khu vực tiếp nhận</h2></header><div class="panel-body">
-            <div class="row g-2 align-items-end mb-2">
-                ${field('Trạng thái', 'fStatus', f.status, { type: 'select', col: 2, options: [['WAIT', 'Chờ duyệt'], ['DONE', 'Hoàn thành']], attrs: `onchange="setRecv('status',this.value)"` })}
-                ${field('Nguồn', 'fSource', f.source, { type: 'select', col: 2, options: [['', 'Tất cả'], ...Object.values(SOURCE_LABEL)], attrs: `onchange="setRecv('source',this.value)"` })}
+        const status = r => receiptStatus(r);
+        const rows = DB.receipts.filter(r => (f.status === 'ALL' || (f.status === 'WAIT' ? receiptWaiting(r) : status(r) === f.status)) && (!f.source || receiptSource(r) === f.source) && r.date >= f.from && r.date <= f.to && (!code || r.id.toLowerCase().includes(code) || r.plate.toLowerCase().includes(code))).slice().reverse();
+        root.innerHTML = `<section class="panel zone-head-scale"><header class="panel-head"><h2><span class="step-no">4–5</span>Trạm cân → đối soát cổng</h2><label class="d-flex gap-2 align-items-center m-0">Ngày cân <input type="date" class="form-control form-control-sm" value="${esc(f.scaleDate)}" onchange="setRecv('scaleDate',this.value)"></label></header><div class="panel-body p-0">` + table([
+            { title: 'Xe', render: t => `<span class="code">${esc(t.plate)}</span><span class="sub">${esc(t.id)} · ${esc(SOURCE_LABEL[t.sourceCategory] || '')}</span>` },
+            { title: 'Nhà cung cấp', render: t => { const s = getSupplier(t.supplierId); return `${esc(supplierName(t.supplierId))}<span class="sub">${esc(kindOf(s))}</span>`; } },
+            { title: 'Hợp đồng', render: t => { const c = getContract(t.contractId); return c ? `<span class="code">${esc(c.no)}</span> ${levelPill(assessContract(c, t.date).level)}` : pill('FAIL', 'Chưa có'); } },
+            { title: 'KL thực tế', num: true, render: t => `<b>${fmt(t.gross - t.tare, 0)} kg</b><span class="sub">dự kiến ${fmt(t.expectedKg, 0)}</span>` },
+            { title: 'Thửa khai', render: t => t.plotIds.map(tag).join('') || pill('FAIL', 'Chưa có') },
+            { title: 'Chốt chặn', render: t => { const g = gateOf(t); return g.ok ? pill('PASS', g.warns.length ? `Qua · ${g.warns.length} cảnh báo` : 'Qua') : `${pill('FAIL', 'Bị chặn')}<span class="sub">${esc(g.blocks[0])}</span>`; } },
+            { title: '', render: t => `<button class="btn btn-sm btn-primary" onclick="gateModal('${t.id}')"><i class="fa fa-qrcode me-1"></i>Đối soát</button>` }
+        ], tickets, 'Không có xe chờ đối soát') + `</div></section>
+        <section class="panel zone-head-recv"><header class="panel-head"><h2><span class="step-no">6–8</span>Phiếu tiếp nhận: chấm, ký, xếp kho</h2></header><div class="panel-body">
+            <div class="d-flex flex-wrap gap-1 mb-2">${RECV_STATUS.map(([k, label]) => `<button type="button" class="btn btn-sm ${f.status === k ? 'btn-dark' : 'btn-light'}" onclick="setRecv('status','${k}')">${esc(label)}</button>`).join('')}</div>
+            <div class="row g-2 align-items-end">
+                ${field('Nguồn', 'fSource', f.source, { type: 'select', col: 3, options: [['', 'Tất cả'], ...Object.values(SOURCE_LABEL)], attrs: `onchange="setRecv('source',this.value)"` })}
                 <div class="col-md-5"><label class="form-label">Ngày cân ${quickDays('chooseRecvTime', [0, -7, -30, -60, -90])}</label><div class="input-group input-group-sm"><input type="date" class="form-control" aria-label="Từ ngày" value="${f.from}" onchange="setRecv('from',this.value)"><span class="input-group-text">đến</span><input type="date" class="form-control" aria-label="Đến ngày" value="${f.to}" onchange="setRecv('to',this.value)"></div></div>
-                ${field('Tìm theo mã', 'fCode', f.code, { col: 3, attrs: `placeholder="Mã chuyến, biển số, cont..." onchange="setRecv('code',this.value)"` })}
+                ${field('Tìm theo mã', 'fCode', f.code, { col: 4, attrs: `placeholder="Mã lô, biển số, cont..." onchange="setRecv('code',this.value)"` })}
             </div></div><div class="panel-body p-0">` + table([
-            { title: 'Thao tác', render: r => `<div class="d-flex gap-1"><button class="btn btn-sm btn-light btn-icon" title="KCS" aria-label="KCS ${r.id}" onclick="kcsForm('${r.id}')"><i class="fa fa-vial-circle-check"></i></button><button class="btn btn-sm btn-light btn-icon" title="Đánh giá, duyệt" aria-label="Đánh giá ${r.id}" onclick="showReceipt('${r.id}')"><i class="fa fa-shield-halved"></i></button></div>` },
-            { title: 'Mã chuyến', render: r => `<span class="code">${esc(r.id)}</span>` },
-            { title: 'Biển số / Cont', render: r => `<span class="code">${esc(r.plate)}</span>` },
-            { title: 'Lần VC', num: true, render: r => r.trip },
-            { title: 'Nhà cung cấp', render: r => `${esc(supplierName(r.supplierId))}<span class="sub">${receiptSource(r)} · Ô ${esc(r.bay || '–')}</span>` },
-            { title: 'EUDR', render: r => pill(receiptStatus(r)) },
-            { title: 'Xếp kho', render: r => tag(`Ô ${r.bay || '–'}`) },
-            { title: 'Lệnh mua', render: r => { const p = receiptPO(r.id); return p ? `<span class="code">${esc(p.id)}</span>` : '–'; } },
-            { title: 'Chọn thửa', render: r => `<button class="btn btn-sm btn-light" onclick="choosePlots('${r.id}')">${r.plotIds.length} thửa</button>` },
-            { title: 'Xưởng', render: r => `${esc(r.workshop)}<span class="sub">Ô ${esc(r.bay || '–')}</span>` },
-            { title: 'KL thực tế', num: true, render: r => fmt(receiptNetKg(r), 0) + ' kg' }, { title: 'Nguồn dữ liệu', render: r => esc(r.dataSource) },
-            { title: 'Nguyên liệu', render: r => `${esc(r.inputType)}<span class="sub sci">${esc(r.species)}</span><span class="sub">${r.pkgCount} ${PACK.packUnit}</span>` },
-            { title: 'Độ ẩm', num: true, render: r => r.moisture ? r.moisture + '%' : '–' }, { title: 'Hạng', render: r => esc(r.grade || '–') }, { title: 'Quy đổi', num: true, render: r => fmt(receiptM3(r)) + ' m³' },
-            { title: 'Trạng thái', render: r => r.done ? pill('PASS', 'Hoàn thành') : pill('MEDIUM', r.kcs ? 'Chờ duyệt' : 'Chờ KCS') }, { title: 'Ngày cân', render: r => esc(r.date) }
-        ], rows, 'Không có phiếu phù hợp') + `</div></section>`;
+            { title: 'Lô', render: r => `<span class="code">${esc(r.id)}</span><span class="sub">${esc(r.date)} · ${esc(r.dataSource)}</span>` },
+            { title: 'Xe / Cont', render: r => `<span class="code">${esc(r.plate)}</span>` },
+            { title: 'NCC · Hợp đồng', render: r => `${esc(supplierName(r.supplierId))}<span class="sub">${esc((getContract(r.contractId) || {}).no || 'Chưa gắn hợp đồng')}${receiptPO(r.id) ? ' · ' + esc(receiptPO(r.id).id) : ''}</span>` },
+            { title: 'Nguyên liệu', render: r => `${esc(r.inputType)}<span class="sub sci">${esc(r.species)}</span><span class="sub">${esc(receiptSource(r))}</span>` },
+            { title: 'Khối lượng', num: true, render: r => `${fmt(receiptNetKg(r), 0)} kg<span class="sub">${r.pkgCount} ${PACK.packUnit} · ${fmt(receiptM3(r))} m³</span>` },
+            { title: 'Rủi ro', render: r => levelPill(assessReceipt(r).level) },
+            { title: 'Còn thiếu', render: r => { const list = nonLow(assessReceipt(r)); return list.length ? list.slice(0, 2).map(x => `<span class="miss lv-${x.level.toLowerCase()}">${esc(x.msg)}</span>`).join('') + (list.length > 2 ? `<span class="sub">+${list.length - 2} mục</span>` : '') : '<span class="text-muted">–</span>'; } },
+            { title: 'Kết quả & ô', render: r => `${pill(status(r))}<span class="sub">Ô ${esc(r.bay || '–')} · ${r.done ? esc(DECISION_ACTIONS[(r.decision || {}).action] || 'Đã ký') : r.kcs ? 'Chờ Tuân thủ ký' : 'Chờ KCS'}</span>` },
+            { title: '', render: r => `<div class="d-flex gap-1"><button class="btn btn-sm btn-primary" onclick="showReceipt('${r.id}')"><i class="fa fa-shield-halved me-1"></i>Hồ sơ lô</button><button class="btn btn-sm btn-light btn-icon" title="KCS & chứng từ" aria-label="KCS ${r.id}" onclick="kcsForm('${r.id}')"><i class="fa fa-vial-circle-check"></i></button></div>` }
+        ], rows, 'Không có phiếu phù hợp') + `</div></section>` +
+        (rejected.length ? card(`Xe đã trả hàng tại cổng (${rejected.length})`, table([
+            { title: 'Xe', render: t => `<span class="code">${esc(t.plate)}</span><span class="sub">${esc(t.id)}</span>` }, { title: 'NCC', render: t => esc(supplierName(t.supplierId)) },
+            { title: 'Lý do', render: t => esc(t.rejected.reason) }, { title: 'Lập', render: t => `${esc(t.rejected.by)}<span class="sub">${esc(t.rejected.at)} · báo ${esc(t.rejected.notify)}</span>` }
+        ], rejected), '', 'panel-flush') : '');
     });
-}
-
-export function manualReceipt() {
-    const m = openModal({
-        title: 'Phiếu tiếp nhận nhập tay', size: 'modal-lg', submitText: 'Tạo phiếu', body: receiptForm(),
-        onSubmit: data => guarded('receipt', () => {
-            const poErr = poReceiptError(data.poId, data.supplierId, data.species);
-            if (poErr) throw new Error(poErr);
-            attachReceiptToPO(createReceipt(data, [], []), data.poId);
-            refresh();
-        })
-    });
-    bindPoSelect(m.el);
 }
 
 // ========== ĐƠN HÀNG (Order) ==========

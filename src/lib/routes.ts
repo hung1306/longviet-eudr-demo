@@ -2,6 +2,7 @@
 export type PageId =
   | "page_purchase_orders"
   | "page_suppliers"
+  | "page_contracts"
   | "page_receipts"
   | "page_warehouse"
   | "page_workorders"
@@ -39,8 +40,9 @@ export interface AppRoute {
 export const APP_ROUTES: readonly AppRoute[] = [
   { path: "nha-may", page: "page_factory_dashboard", navKey: "dashboard", title: "Thống kê" },
   { path: "nha-may/lenh-mua", page: "page_purchase_orders", navKey: "lenh-mua", title: "Lệnh mua nguyên liệu" },
-  { path: "nha-may/hop-dong-cung-ung", page: "page_suppliers", navKey: "hop-dong", title: "Nhà cung cấp" },
-  { path: "nha-may/tiep-nhan", page: "page_receipts", navKey: "tiep-nhan", title: "Tiếp nhận & Rủi ro" },
+  { path: "nha-may/hop-dong-cung-ung", page: "page_suppliers", navKey: "hop-dong", title: "Nguồn cung & Thương lái" },
+  { path: "nha-may/hop-dong-mua", page: "page_contracts", navKey: "hop-dong-mua", title: "Hợp đồng mua & hồ sơ" },
+  { path: "nha-may/tiep-nhan", page: "page_receipts", navKey: "tiep-nhan", title: "Tiếp nhận nguyên liệu" },
   { path: "nha-may/kho-nguyen-lieu", page: "page_warehouse", navKey: "kho-nguyen-lieu", title: "Kho nguyên liệu" },
   { path: "nha-may/lenh-san-xuat", page: "page_workorders", navKey: "lenh-san-xuat", title: "Lệnh sản xuất" },
   { path: "nha-may/nhat-ky-san-xuat", page: "page_stages", navKey: "nhat-ky-san-xuat", title: "Nhật ký sản xuất" },

@@ -33,6 +33,8 @@ export function buildSeed(pack) {
             { common: 'Dương', scientific: POPLAR }
         ],
         riskSpecies: [],
+        // Danh sách mẫu nước được nhập gỗ (vùng địa lý tích cực, NĐ 102/2020 sửa bởi NĐ 120/2024). Cần cập nhật theo văn bản gốc.
+        allowedOrigins: ['CN', 'LA', 'KH', 'TH', 'MY', 'ID', 'NZ', 'AU', 'US', 'CA', 'CL', 'BR', 'UY', 'ZA', 'DE', 'FR', 'FI', 'SE'],
         hsCodes: pack.hs.map(h => h.code),
         recoveryMin: pack.recovery[0],
         recoveryMax: pack.recovery[1],
@@ -45,16 +47,16 @@ export function buildSeed(pack) {
     };
 
     const suppliers = [
-        { id: 'NCC-VN-001', name: 'Công ty Lâm nghiệp A (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000001', address: 'Định Quán, Đồng Nai', email: 'lamnghiepa@example.com', contact: 'Nguyễn Văn A, 0900 000 001', chain: 'DIRECT', commitment: true, contractNo: 'HĐ-2026/01', contractExpiry: '2027-06-30', site: 'Xưởng sơ chế A: 107.351220, 11.241870' },
-        { id: 'NCC-VN-002', name: 'Hợp tác xã Lâm sản B (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000002', address: 'Bù Đăng, Đồng Nai', email: 'htxb@example.com', contact: 'Trần Văn B, 0900 000 002', chain: 'AGENT', commitment: true, contractNo: 'HĐ-2026/02', contractExpiry: '2026-11-30', site: 'Xưởng HTX B: 107.190415, 11.760238' },
-        { id: 'NCC-VN-003', name: 'Xưởng gỗ C (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000003', address: 'Đức Trọng, Lâm Đồng', email: 'xuongc@example.com', contact: 'Lê Văn C, 0900 000 003', chain: 'MULTI', commitment: false, contractNo: '', contractExpiry: '', site: '' },
-        { id: 'NCC-VN-004', name: 'Hộ trồng rừng D (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000004', address: 'Định Quán, Đồng Nai', email: 'hod@example.com', contact: 'Phạm Văn D, 0900 000 004', chain: 'DIRECT', commitment: true, contractNo: 'HĐ-2026/04', contractExpiry: '2027-04-30', site: '' },
-        { id: 'NCC-VN-005', name: 'Đại lý gỗ E (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000005', address: 'Tân Châu, Tây Ninh', email: 'dailye@example.com', contact: 'Đỗ Văn E, 0900 000 005', chain: 'AGENT', commitment: false, contractNo: '', contractExpiry: '', site: '' },
-        { id: 'NCC-CN-001', name: 'Foreign Timber F Co. (mẫu)', type: 'IMPORT', country: 'CN', taxCode: 'CN0000000006', address: 'Guangxi, China', email: 'export@timberf.example', contact: 'Export Dept, +86 000 000 006', chain: 'DIRECT', commitment: true, contractNo: 'CTR-2026/07', contractExpiry: '2027-03-31', site: 'Nhà máy F: 108.320145, 22.816372' },
-        { id: 'NCC-CN-002', name: 'Trading G Co. (mẫu)', type: 'IMPORT', country: 'CN', taxCode: 'CN0000000007', address: 'Shandong, China', email: 'sales@tradingg.example', contact: 'Sales Dept, +86 000 000 007', chain: 'MULTI', commitment: false, contractNo: '', contractExpiry: '', site: '' },
-        { id: 'NCC-VN-006', name: 'Công ty Lâm sản H (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000008', address: 'Pleiku, Gia Lai', email: 'lamsanh@example.com', contact: 'Vũ Văn H, 0900 000 008', chain: 'DIRECT', commitment: true, contractNo: 'HĐ-2026/08', contractExpiry: '2027-09-30', site: 'Xưởng H: 108.002100, 13.983200' },
-        { id: 'NCC-VN-007', name: 'Lâm trường I (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000009', address: 'Đông Hà, Quảng Trị', email: 'lamtruongi@example.com', contact: 'Hoàng Văn I, 0900 000 009', chain: 'DIRECT', commitment: true, contractNo: 'HĐ-2026/09', contractExpiry: '2027-12-31', site: '' },
-        { id: 'NCC-VN-008', name: 'Hộ trồng rừng K (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000010', address: 'Vĩnh Cửu, Đồng Nai', email: 'hok@example.com', contact: 'Bùi Văn K, 0900 000 010', chain: 'DIRECT', commitment: true, contractNo: 'HĐ-2026/10', contractExpiry: '2027-02-28', site: '' }
+        { id: 'NCC-VN-001', kind: 'OWNER', name: 'Công ty Lâm nghiệp A (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000001', address: 'Định Quán, Đồng Nai', email: 'lamnghiepa@example.com', contact: 'Nguyễn Văn A, 0900 000 001', chain: 'DIRECT', commitment: true, contractNo: 'HĐ-2026/01', contractExpiry: '2027-06-30', site: 'Xưởng sơ chế A: 107.351220, 11.241870' },
+        { id: 'NCC-VN-002', kind: 'TRADER', name: 'Hợp tác xã Lâm sản B (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000002', address: 'Bù Đăng, Đồng Nai', email: 'htxb@example.com', contact: 'Trần Văn B, 0900 000 002', chain: 'AGENT', commitment: true, contractNo: 'HĐ-2026/02', contractExpiry: '2026-11-30', site: 'Xưởng HTX B: 107.190415, 11.760238' },
+        { id: 'NCC-VN-003', kind: 'MILL', name: 'Xưởng gỗ C (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000003', address: 'Đức Trọng, Lâm Đồng', email: 'xuongc@example.com', contact: 'Lê Văn C, 0900 000 003', chain: 'MULTI', commitment: false, contractNo: '', contractExpiry: '', site: '' },
+        { id: 'NCC-VN-004', kind: 'OWNER', name: 'Hộ trồng rừng D (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000004', address: 'Định Quán, Đồng Nai', email: 'hod@example.com', contact: 'Phạm Văn D, 0900 000 004', chain: 'DIRECT', commitment: true, contractNo: 'HĐ-2026/04', contractExpiry: '2027-04-30', site: '' },
+        { id: 'NCC-VN-005', kind: 'TRADER', name: 'Đại lý gỗ E (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000005', address: 'Tân Châu, Tây Ninh', email: 'dailye@example.com', contact: 'Đỗ Văn E, 0900 000 005', chain: 'AGENT', commitment: false, contractNo: '', contractExpiry: '', site: '' },
+        { id: 'NCC-CN-001', kind: 'IMPORTER', name: 'Foreign Timber F Co. (mẫu)', type: 'IMPORT', country: 'CN', taxCode: 'CN0000000006', address: 'Guangxi, China', email: 'export@timberf.example', contact: 'Export Dept, +86 000 000 006', chain: 'DIRECT', commitment: true, contractNo: 'CTR-2026/07', contractExpiry: '2027-03-31', site: 'Nhà máy F: 108.320145, 22.816372' },
+        { id: 'NCC-CN-002', kind: 'IMPORTER', name: 'Trading G Co. (mẫu)', type: 'IMPORT', country: 'CN', taxCode: 'CN0000000007', address: 'Shandong, China', email: 'sales@tradingg.example', contact: 'Sales Dept, +86 000 000 007', chain: 'MULTI', commitment: false, contractNo: '', contractExpiry: '', site: '' },
+        { id: 'NCC-VN-006', kind: 'OWNER', name: 'Công ty Lâm sản H (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000008', address: 'Pleiku, Gia Lai', email: 'lamsanh@example.com', contact: 'Vũ Văn H, 0900 000 008', chain: 'DIRECT', commitment: true, contractNo: 'HĐ-2026/08', contractExpiry: '2027-09-30', site: 'Xưởng H: 108.002100, 13.983200' },
+        { id: 'NCC-VN-007', kind: 'OWNER', name: 'Lâm trường I (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000009', address: 'Đông Hà, Quảng Trị', email: 'lamtruongi@example.com', contact: 'Hoàng Văn I, 0900 000 009', chain: 'DIRECT', commitment: true, contractNo: 'HĐ-2026/09', contractExpiry: '2027-12-31', site: '' },
+        { id: 'NCC-VN-008', kind: 'OWNER', name: 'Hộ trồng rừng K (mẫu)', type: 'DOMESTIC', country: 'VN', taxCode: '0000000010', address: 'Vĩnh Cửu, Đồng Nai', email: 'hok@example.com', contact: 'Bùi Văn K, 0900 000 010', chain: 'DIRECT', commitment: true, contractNo: 'HĐ-2026/10', contractExpiry: '2027-02-28', site: '' }
     ];
 
     const clear = date => ({ result: 'CLEAR', source: 'JRC GFC2020 + ảnh vệ tinh', date, by: 'Chuyên viên GIS' });
@@ -70,14 +72,41 @@ export function buildSeed(pack) {
         squarePlot('PLOT-VN-GL-02', 'NCC-VN-006', 'Lâm trường mẫu H2', 'Pleiku, Gia Lai', EUCALYPTUS, 24, 108.0321, 13.9532, clear('2026-10-22')),
         squarePlot('PLOT-VN-QT-01', 'NCC-VN-007', 'Lâm trường I, khoảnh 2', 'Đông Hà, Quảng Trị', ACACIA, 30, 107.0512, 16.8123, clear('2026-10-25')),
         squarePlot('PLOT-VN-QT-02', 'NCC-VN-007', 'Lâm trường I, khoảnh 5', 'Đông Hà, Quảng Trị', ACACIA, 15, 107.0812, 16.7823, clear('2026-10-25')),
+        squarePlot('PLOT-VN-BD-07', 'NCC-VN-002', 'Hộ mẫu 11 (chưa đăng ký với thương lái)', 'Bù Đăng, Đồng Nai', EUCALYPTUS, 3, 107.2051, 11.7712, clear('2026-10-30')),
         { id: 'PLOT-VN-DN-05', supplierId: 'NCC-VN-008', owner: 'Hộ trồng rừng K (mẫu)', country: 'VN', place: 'Vĩnh Cửu, Đồng Nai', species: HEVEA, areaHa: 2.5, geometry: { type: 'Point', coordinates: [107.012345, 11.123456] }, plantingYear: 2013, harvestFrom: '2026-10-20', harvestTo: '2026-10-25', landDoc: 'GCNQSDĐ (mẫu 05)', forest: clear('2026-10-28'), version: 1 }
     ];
+
+    // Hợp đồng mua: veneer 1270 × 640 × 2 mm, 1000 tấm mỗi kiện (1,6256 m³/kiện).
+    const ALL_CLAUSES = ['coord', 'sci', 'harvest', 'defor', 'legal', 'nomix', 'origin3', 'audit', 'retain', 'reject', 'refund'];
+    const DOC_KEYS = { DOMESTIC: ['biz', 'land', 'permit', 'labor', 'defor', 'cert'], IMPORT: ['biz', 'legal', 'permit', 'origin', 'defor', 'cert'] };
+    const flags = (keys, skip = []) => Object.fromEntries(keys.filter(k => !skip.includes(k)).map(k => [k, true]));
+    const contract = (id, no, supplierId, origin, species, bales, date, end, extra = {}) => {
+        const docs = flags(DOC_KEYS[origin], extra.skipDocs);
+        const scans = Object.fromEntries(Object.keys(docs).filter(k => !(extra.skipScans || []).includes(k)).map(k => [k, `${no.replace(/\W+/g, '_')}_${k}.pdf`]));
+        return {
+            id, no, supplierId, origin, species, sci: species, form: pack.inputs[0], date, end,
+            len: 1270, wid: 640, thk: 2, per: 1000, bales, moist: origin === 'IMPORT' ? 15 : 16, kgm3: 650,
+            clauses: flags(ALL_CLAUSES, extra.skipClauses), docs, scans, farmerIds: extra.farmerIds || [], note: extra.note || ''
+        };
+    };
+    const contracts = [
+        contract('HD-01', 'HĐ-2026/01', 'NCC-VN-001', 'DOMESTIC', HEVEA, 200, '2026-01-10', '2027-06-30'),
+        contract('HD-02', 'HĐ-2026/02', 'NCC-VN-002', 'DOMESTIC', EUCALYPTUS, 150, '2026-01-15', '2026-11-30', { farmerIds: ['HL-03', 'HL-09'], note: 'Thương lái gom từ 2 khoảnh lâm trường' }),
+        contract('HD-04', 'HĐ-2026/04', 'NCC-VN-004', 'DOMESTIC', HEVEA, 40, '2026-02-01', '2027-04-30'),
+        contract('HD-05', 'HĐ-2026/05', 'NCC-VN-005', 'DOMESTIC', EUCALYPTUS, 100, '2026-09-01', '2027-09-01', { farmerIds: ['HL-05', 'HL-10'], skipClauses: ['defor', 'retain'], skipDocs: ['land'], note: 'Đại lý chưa ký cam kết không phá rừng' }),
+        contract('HD-07', 'CTR-2026/07', 'NCC-CN-001', 'IMPORT', POPLAR, 60, '2026-03-01', '2027-03-31'),
+        contract('HD-08', 'HĐ-2026/08', 'NCC-VN-006', 'DOMESTIC', ACACIA, 160, '2026-03-15', '2027-09-30'),
+        contract('HD-09', 'HĐ-2026/09', 'NCC-VN-007', 'DOMESTIC', ACACIA, 100, '2026-04-01', '2027-12-31'),
+        contract('HD-10', 'HĐ-2026/10', 'NCC-VN-008', 'DOMESTIC', HEVEA, 30, '2026-04-10', '2027-02-28'),
+        contract('HD-11', 'CTR-2026/11', 'NCC-CN-002', 'IMPORT', POPLAR, 40, '2026-06-01', '2027-06-01', { skipClauses: ['retain'], skipScans: ['permit', 'origin'], note: 'Chờ bản scan giấy phép khai thác' })
+    ];
+    const CONTRACT_OF = Object.fromEntries(contracts.map(c => [c.supplierId, c.id]));
 
     const approved = at => ({ by: 'Trưởng ban Tuân thủ', at, reason: 'Đủ hồ sơ' });
     const importDocs = ['Hợp đồng mua bán', 'Hóa đơn', 'Packing list', 'Vận đơn', 'C/O', 'Tờ khai hải quan', 'Kiểm dịch thực vật'];
     const domesticDocs = ['Bảng kê lâm sản', 'Hợp đồng mua bán', 'Hóa đơn', 'Chứng từ vận chuyển'];
 
-    const lot = (no, r) => ({ id: `NL2610-${no}`, trip: 1, workshop: pack.workshops[0], moisture: 14, grade: 'A', mitigations: [], dataSource: 'Trạm cân', kcs: { by: 'KCS', at: r.date }, done: !!r.approval, expectedKg: r.gross - r.tare, approval: null, ...r });
+    const lot = (no, r) => ({ id: `NL2610-${no}`, trip: 1, workshop: pack.workshops[0], moisture: 14, grade: 'A', mitigations: [], dataSource: 'Trạm cân', kcs: { by: 'KCS', at: r.date }, done: !!r.approval, expectedKg: r.gross - r.tare, approval: null, contractId: CONTRACT_OF[r.supplierId] || '', ...r });
     const receipts = [
         lot('01', { plate: '60C-000.01', supplierId: 'NCC-VN-001', date: '2026-10-26', species: HEVEA, inputType: inputOf(0), sourceCategory: 'DOMESTIC', pkgCount: 20, m3: 100, gross: 24500, tare: 10250, bay: 'A-01', plotIds: ['PLOT-VN-DN-01', 'PLOT-VN-DN-02'], docs: domesticDocs, approval: approved('2026-10-26'), batchCode: 'KIEN-2610-01' }),
         lot('02', { plate: '60C-000.02', supplierId: 'NCC-VN-001', date: '2026-10-26', species: HEVEA, inputType: inputOf(0), sourceCategory: 'DOMESTIC', pkgCount: 17, m3: 85, gross: 20900, tare: 10150, bay: 'A-02', plotIds: ['PLOT-VN-DN-02'], docs: domesticDocs, approval: approved('2026-10-26'), batchCode: 'KIEN-2610-02' }),
@@ -179,8 +208,10 @@ export function buildSeed(pack) {
         { id: 'SC-261104-03', plate: 'Cont TGHU000013', workshop: pack.workshops[1], trip: 1, supplierId: 'NCC-CN-001', phone: '+86 000 000 006', expectedKg: 8500, gross: 22500, tare: 14000, date: '2026-11-04', plotIds: ['PLOT-CN-GX-01'], receiptId: '', sourceCategory: 'IMPORT', rawType: inputOf(2), batchCode: 'CONT-2611-13' },
         { id: 'SC-261104-04', plate: '60C-000.14', workshop: pack.workshops[1], trip: 1, supplierId: 'NCC-VN-002', phone: '0900 000 002', expectedKg: 9000, gross: 17500, tare: 8500, date: '2026-11-04', plotIds: [], receiptId: '', sourceCategory: 'RECYCLED', rawType: 'Phụ phẩm tái chế', batchCode: 'KIEN-2611-14' },
         { id: 'SC-261105-05', plate: '81C-000.15', workshop: pack.workshops[0], trip: 1, supplierId: 'NCC-VN-006', phone: '0900 000 008', expectedKg: 15000, gross: 29800, tare: 14900, date: '2026-11-05', plotIds: ['PLOT-VN-GL-01'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(0), batchCode: 'KIEN-2611-15' },
-        { id: 'SC-261105-06', plate: '74C-000.16', workshop: pack.workshops[0], trip: 1, supplierId: 'NCC-VN-007', phone: '0900 000 009', expectedKg: 13000, gross: 27200, tare: 14300, date: '2026-11-05', plotIds: ['PLOT-VN-QT-02'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(1), batchCode: 'KIEN-2611-16' }
-    ];
+        { id: 'SC-261105-06', plate: '74C-000.16', workshop: pack.workshops[0], trip: 1, supplierId: 'NCC-VN-007', phone: '0900 000 009', expectedKg: 13000, gross: 27200, tare: 14300, date: '2026-11-05', plotIds: ['PLOT-VN-QT-02'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(1), batchCode: 'KIEN-2611-16' },
+        { id: 'SC-261105-07', plate: '61H-000.17', workshop: pack.workshops[0], trip: 3, supplierId: 'NCC-VN-002', phone: '0900 000 002', expectedKg: 7000, gross: 15400, tare: 8300, date: '2026-11-05', plotIds: ['PLOT-VN-BD-07'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(1), batchCode: 'KIEN-2611-17' },
+        { id: 'SC-261105-08', plate: '70C-000.18', workshop: pack.workshops[1], trip: 1, supplierId: 'NCC-VN-005', phone: '0900 000 005', expectedKg: 10000, gross: 22100, tare: 11800, date: '2026-11-05', plotIds: ['PLOT-VN-TC-04'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(1), batchCode: 'KIEN-2611-18' }
+    ].map(t => ({ contractId: CONTRACT_OF[t.supplierId] || '', pkgCount: 4, pkgM3: 1.6256, ...t }));
 
     const car = (no, product, list) => ({ id: `XE-${no}`, product, typeCar: 'Container 40HC', plate: `51D-000.0${no}`, seal: `SEAL0${no}`, cont: `TGHU00000${no}`, date: '2026-11-05', kg: list.reduce((s, id) => s + pallets.find(p => p.id === id).kg, 0), timeIn: '08:00', timeOut: '11:30', remark: '', palletIds: list });
     const makeOrder = (id, c, product, ids, status, extra = {}) => {
@@ -267,12 +298,14 @@ export function buildSeed(pack) {
     const farmers = [
         { id: 'HL-01', name: 'Hộ mẫu 01', type: 'SMALLHOLDER', phone: '0900 000 101', cccd: '000000000101', address: 'Định Quán, Đồng Nai', areaHa: 3.8, species: HEVEA, landDoc: 'GCNQSDĐ (mẫu 01)', plots: ['PLOT-VN-DN-01'], eudrStatus: 'PASS' },
         { id: 'HL-02', name: 'Hộ mẫu 02', type: 'SMALLHOLDER', phone: '0900 000 102', cccd: '000000000102', address: 'Định Quán, Đồng Nai', areaHa: 13.7, species: HEVEA, landDoc: 'GCNQSDĐ (mẫu 02)', plots: ['PLOT-VN-DN-02'], eudrStatus: 'PASS' },
-        { id: 'HL-03', name: 'Lâm trường mẫu', type: 'FORESTRY_COMPANY', phone: '0900 000 103', cccd: 'MST: 0000000103', address: 'Bù Đăng, Đồng Nai', areaHa: 21.3, species: EUCALYPTUS, landDoc: 'QĐ giao đất (mẫu)', plots: ['PLOT-VN-BP-03'], eudrStatus: 'PASS' },
+        { id: 'HL-03', name: 'Lâm trường mẫu, khoảnh 4', type: 'FORESTRY_COMPANY', phone: '0900 000 103', cccd: 'MST: 0000000103', address: 'Bù Đăng, Đồng Nai', areaHa: 21.3, species: EUCALYPTUS, landDoc: 'QĐ giao đất (mẫu)', plots: ['PLOT-VN-BP-03'], eudrStatus: 'PASS', traderId: 'NCC-VN-002' },
+        { id: 'HL-09', name: 'Lâm trường mẫu, khoảnh 6', type: 'FORESTRY_COMPANY', phone: '0900 000 109', cccd: 'MST: 0000000109', address: 'Bù Đăng, Đồng Nai', areaHa: 21.4, species: ACACIA, landDoc: 'QĐ giao đất (mẫu)', plots: ['PLOT-VN-BP-04'], eudrStatus: 'PASS', traderId: 'NCC-VN-002' },
         { id: 'HL-04', name: 'Forest Base F (mẫu)', type: 'FOREIGN_BASE', phone: '+86 000 000 104', cccd: 'Tax: CN0000000104', address: 'Guangxi, China', areaHa: 37, species: POPLAR, landDoc: 'Forest License (mẫu)', plots: ['PLOT-CN-GX-01'], eudrStatus: 'PASS' },
         { id: 'HL-06', name: 'Lâm trường mẫu H1', type: 'FORESTRY_COMPANY', phone: '0900 000 106', cccd: 'MST: 0000000106', address: 'Pleiku, Gia Lai', areaHa: 18, species: ACACIA, landDoc: 'QĐ giao đất (mẫu)', plots: ['PLOT-VN-GL-01'], eudrStatus: 'PASS' },
         { id: 'HL-07', name: 'Lâm trường I', type: 'FORESTRY_COMPANY', phone: '0900 000 107', cccd: 'MST: 0000000107', address: 'Đông Hà, Quảng Trị', areaHa: 45, species: ACACIA, landDoc: 'QĐ giao đất (mẫu)', plots: ['PLOT-VN-QT-01', 'PLOT-VN-QT-02'], eudrStatus: 'PASS' },
         { id: 'HL-08', name: 'Hộ trồng rừng K (mẫu)', type: 'SMALLHOLDER', phone: '0900 000 108', cccd: '000000000108', address: 'Vĩnh Cửu, Đồng Nai', areaHa: 2.5, species: HEVEA, landDoc: 'GCNQSDĐ (mẫu 05)', plots: ['PLOT-VN-DN-05'], eudrStatus: 'PASS' },
-        { id: 'HL-05', name: 'Đại lý gỗ E (mẫu)', type: 'SMALLHOLDER', phone: '0900 000 105', cccd: '000000000105', address: 'Tân Châu, Tây Ninh', areaHa: 12.5, species: EUCALYPTUS, landDoc: 'Chưa có', plots: ['PLOT-VN-TC-04'], eudrStatus: 'FAIL' }
+        { id: 'HL-05', name: 'Hộ mẫu 05 (Tân Châu)', type: 'SMALLHOLDER', phone: '0900 000 105', cccd: '000000000105', address: 'Tân Châu, Tây Ninh', areaHa: 12.5, species: EUCALYPTUS, landDoc: 'Chưa có', plots: ['PLOT-VN-TC-04'], eudrStatus: 'FAIL', traderId: 'NCC-VN-005' },
+        { id: 'HL-10', name: 'Hộ mẫu 10 (Tân Châu)', type: 'SMALLHOLDER', phone: '0900 000 110', cccd: '000000000110', address: 'Tân Châu, Tây Ninh', areaHa: 2.1, species: EUCALYPTUS, landDoc: 'Chưa có', plots: [], eudrStatus: 'FAIL', traderId: 'NCC-VN-005' }
     ];
     const account = (username, fullName, role, position) => ({ username, fullName, role, position, email: `${username}@congtymau.example`, lastLogin: '2026-11-04 14:30', status: 'ACTIVE' });
     const accounts = [
@@ -326,7 +359,7 @@ export function buildSeed(pack) {
     });
 
     return {
-        version: 17,
+        version: 18,
         industry: pack.id,
         workers,
         attendance,
@@ -351,7 +384,7 @@ export function buildSeed(pack) {
         scaleTickets,
         purchaseOrders,
         materials,
-        contracts: [],
+        contracts,
         plots,
         receipts,
         packages,

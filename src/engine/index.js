@@ -5,6 +5,7 @@
 import * as banDo from './ban-do/ban-do.js';
 import * as chamCong from './nha-may/cham-cong.js';
 import * as danhMuc from './nha-may/danh-muc.js';
+import * as hopDongMua from './nha-may/hop-dong-mua.js';
 import * as lenhMua from './nha-may/lenh-mua.js';
 import * as sanXuat from './nha-may/san-xuat.js';
 import * as tiepNhan from './nha-may/tiep-nhan-don-hang.js';
@@ -14,7 +15,7 @@ import * as core from './shared/core.js';
 import * as mockData from './shared/mock_data.js';
 import * as navigation from './shared/navigation.js';
 
-const MODULES = [mockData, core, navigation, sanXuat, lenhMua, banDo, quanTri, tongQuan, danhMuc, tiepNhan, chamCong];
+const MODULES = [mockData, core, navigation, sanXuat, lenhMua, banDo, quanTri, tongQuan, danhMuc, hopDongMua, tiepNhan, chamCong];
 
 /**
  * Chuỗi HTML gọi hàm qua thuộc tính onclick/onchange, các thuộc tính này chỉ thấy phạm vi toàn cục.
@@ -32,6 +33,7 @@ exposeGlobals();
 /** Mỗi lần vào trang đều bắt đầu từ bộ lọc mặc định, như khi tải lại trang. */
 function resetViews() {
     lenhMua.resetPurchaseOrderViews();
+    hopDongMua.resetContractViews();
     sanXuat.resetProductionViews();
     tiepNhan.resetReceiptOrderViews();
     chamCong.resetAttendanceView();

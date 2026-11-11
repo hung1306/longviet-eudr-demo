@@ -110,7 +110,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const subsystem = SUBSYSTEMS[getActiveSubsystem(route.navKey)];
   const closeSidebar = () => setSidebarOpen(false);
-  const openSubsystemModal = () => window.openSubsystemModal?.();
   const navProps = { items: subsystem.nav, activeKey: route.navKey, onNavigate: closeSidebar };
 
   return (
@@ -130,24 +129,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
         </Link>
-        <div
-          className="sidebar-subsystem-tag"
-          role="button"
-          tabIndex={0}
-          title="Bấm để chuyển đổi phân hệ"
-          style={{ cursor: "pointer" }}
-          onClick={openSubsystemModal}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              openSubsystemModal();
-            }
-          }}
-        >
-          <i className={`fa ${subsystem.icon}`} />
-          <span>{subsystem.fullName}</span>
-          <i className="fa fa-chevron-right ms-auto small opacity-75" />
-        </div>
         <div className="sidebar-industry">
           <IndustrySelect className="form-select form-select-sm" />
         </div>
