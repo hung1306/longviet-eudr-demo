@@ -3,7 +3,7 @@ import {
     speciesOptions,
     supplierName,
     traceLink,
-} from './san-xuat.js';
+} from '../nha-may/san-xuat.js';
 import {
     DB,
     byId,
@@ -236,8 +236,8 @@ export function page_purchase_orders() {
             { title: 'Trạng thái', render: p => { const [k, t] = poState(p); return pill(k, t); } },
             { title: '', render: p => `<div class="d-flex gap-1">
                 <button class="btn btn-sm btn-light btn-icon" title="Xem" aria-label="Xem ${p.id}" onclick="showPO('${p.id}')"><i class="fa fa-eye"></i></button>
-                ${p.status === 'DRAFT' ? `<button class="btn btn-sm btn-light btn-icon" title="Sửa" aria-label="Sửa ${p.id}" onclick="editPO('${p.id}')"><i class="fa fa-pen"></i></button><button class="btn btn-sm btn-primary" onclick="approvePO('${p.id}')">Duyệt</button>` : ''}
-                ${p.status === 'OPEN' ? `<button class="btn btn-sm btn-light" onclick="linkReceipts('${p.id}')">Gắn lô</button>` : ''}
+                ${p.status === 'DRAFT' ? `<button class="btn btn-sm btn-light btn-icon" title="Sửa" aria-label="Sửa ${p.id}" onclick="editPO('${p.id}')"><i class="fa fa-pen"></i></button><button class="btn btn-sm btn-primary btn-icon" title="Duyệt" aria-label="Duyệt ${p.id}" onclick="approvePO('${p.id}')"><i class="fa fa-check"></i></button>` : ''}
+                ${p.status === 'OPEN' ? `<button class="btn btn-sm btn-light btn-icon" title="Gắn lô" aria-label="Gắn lô ${p.id}" onclick="linkReceipts('${p.id}')"><i class="fa fa-link"></i></button>` : ''}
                 ${p.status !== 'CANCEL' && !p.receiptIds.length ? `<button class="btn btn-sm btn-light btn-icon" title="Hủy" aria-label="Hủy ${p.id}" onclick="cancelPO('${p.id}')"><i class="fa fa-ban"></i></button>` : ''}
             </div>` }
         ], rows, 'Không có lệnh phù hợp'), '', 'panel-flush');

@@ -3,7 +3,7 @@ import {
     speciesOptions,
     supplierName,
     traceLink,
-} from './san-xuat.js';
+} from '../nha-may/san-xuat.js';
 import {
     CONTRACT_CLAUSES,
     CONTRACT_DOCS,
@@ -90,7 +90,7 @@ function farmersHtml(supplierId, selected) {
     const s = getSupplier(supplierId);
     if (!isTrader(s)) return '<p class="text-muted small mb-0">Bên bán không phải thương lái: lô được gắn thửa của chính bên bán.</p>';
     const list = DB.farmers.filter(f => f.traderId === supplierId);
-    if (!list.length) return `<div class="note-box bad mb-0">Thương lái chưa có hộ nào. Thêm hộ ở bước 1 <a href="/nha-may/hop-dong-cung-ung?tab=farmers">Nguồn cung & Thương lái</a>.</div>`;
+    if (!list.length) return `<div class="note-box bad mb-0">Thương lái chưa có hộ nào. Thêm hộ ở bước 1 <a href="/thu-mua/nguon-cung?tab=farmers">Nguồn cung & Thương lái</a>.</div>`;
     return `<p class="small text-muted mb-1">Chỉ hộ được chọn mới được giao hàng theo hợp đồng này. Hộ thiếu hồ sơ thì bị chặn tại cổng.</p>` + list.map(f => `<label class="ct-check"><input class="form-check-input" type="checkbox" name="farmer" value="${esc(f.id)}" ${selected.includes(f.id) ? 'checked' : ''}><span>${esc(f.name)} <em>${esc(f.id)} · ${(f.plots || []).length} thửa</em></span>${farmerReady(f) ? pill('PASS', 'Đủ hồ sơ') : pill('FAIL', 'Thiếu tọa độ / giấy đất')}</label>`).join('');
 }
 
@@ -244,7 +244,7 @@ export function page_contracts() {
                 { title: 'Đã nhận m³', num: true, render: ({ c }) => { const got = contractReceivedM3(c), v = contractM3(c); return `${fmt(got, 1)}<span class="sub">${contractReceipts(c).length} lô${v ? ` · ${fmt(got / v * 100, 0)}%` : ''}</span>`; } },
                 { title: 'Hộ', num: true, render: ({ c }) => isTrader(getSupplier(c.supplierId)) ? `${(c.farmerIds || []).length}` : '–' },
                 { title: 'Hồ sơ', render: ({ a }) => { const top = a.issues.find(i => i.level === a.level); return levelPill(a.level) + (top ? `<span class="sub">${esc(top.msg)}</span>` : ''); } },
-                { title: '', render: ({ c }) => `<div class="d-flex gap-1"><button class="btn btn-sm btn-light" onclick="showContract('${c.id}')">Chi tiết</button><button class="btn btn-sm btn-light btn-icon" aria-label="Sửa ${esc(c.no)}" onclick="contractModal('${c.id}')"><i class="fa fa-pen"></i></button></div>` }
+                { title: '', render: ({ c }) => `<div class="d-flex gap-1"><button class="btn btn-sm btn-light btn-icon" title="Chi tiết" aria-label="Chi tiết" onclick="showContract('${c.id}')"><i class="fa fa-eye"></i></button><button class="btn btn-sm btn-light btn-icon" aria-label="Sửa ${esc(c.no)}" onclick="contractModal('${c.id}')"><i class="fa fa-pen"></i></button></div>` }
             ], rows, 'Chưa có hợp đồng. Lập hợp đồng mua trước khi tiếp nhận lô hàng.'), '', 'panel-flush');
     });
 }

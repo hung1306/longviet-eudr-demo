@@ -4,7 +4,7 @@ import {
     poField,
     poReceiptError,
     receiptPO,
-} from './lenh-mua.js';
+} from '../thu-mua/lenh-mua.js';
 import {
     lightBtn,
     newBtn,
@@ -163,7 +163,7 @@ export function receiptForm(preset = {}) {
 }
 
 /** Ghép form với khung kết quả: đổi NCC thì đổi hợp đồng, đổi hợp đồng thì đổi thửa; mọi thay đổi chấm lại ngay. */
-export function bindIntake(el, preset = {}) {
+export function bindIntake(el, preset = {}, opts = {}) {
     const form = el.querySelector('form');
     const q = n => form.querySelector(`[name=${n}]`);
     const plotBox = form.querySelector('[data-plot-list]'), docBox = form.querySelector('[data-doc-list]'), ctSel = form.querySelector('[data-contract-select]');
@@ -196,12 +196,12 @@ export function bindIntake(el, preset = {}) {
         const gate = gateCheck(d);
         const a = assessReceipt({ id: 'DRAFT', ...d, mitigations: [] });
         const result = !gate.ok ? 'BLOCK' : a.level;
-        const head = { BLOCK: ['bad', 'fa-ban', 'BỊ CHẶN: xe không được vào kho'], HIGH: ['bad', 'fa-circle-xmark', 'Nhận vào Khu C (cách ly): Không đạt'], MEDIUM: ['warn', 'fa-triangle-exclamation', 'Nhận vào Khu B: Cần bổ sung'], LOW: ['ok', 'fa-circle-check', 'Nhận vào Khu B, chờ Tuân thủ ký Đạt'] }[result];
+        const head = opts.dossier ? { BLOCK: ["bad", "fa-ban", "Không đạt: không được mua"], HIGH: ["bad", "fa-circle-xmark", "Không đạt: không được mua"], MEDIUM: ["warn", "fa-triangle-exclamation", "Cần bổ sung: chưa xác nhận mua được"], LOW: ["ok", "fa-circle-check", "Đạt: được xác nhận mua"] }[result] : { BLOCK: ['bad', 'fa-ban', 'BỊ CHẶN: xe không được vào kho'], HIGH: ['bad', 'fa-circle-xmark', 'Nhận vào Khu C (cách ly): Không đạt'], MEDIUM: ['warn', 'fa-triangle-exclamation', 'Nhận vào Khu B: Cần bổ sung'], LOW: ['ok', 'fa-circle-check', 'Nhận vào Khu B, chờ Tuân thủ ký Đạt'] }[result];
         el.querySelector('[data-gate]').innerHTML = `<div class="risk-box ${head[0]}"><strong><i class="fa ${head[1]} me-1"></i>${head[2]}</strong>
             <h4>Chốt chặn tại cổng</h4><ul>${gate.blocks.map(b => `<li class="lv-high"><i class="fa fa-ban"></i>${esc(b)}</li>`).join('')}${gate.warns.map(w => `<li class="lv-medium"><i class="fa fa-triangle-exclamation"></i>${esc(w)}</li>`).join('')}${!gate.blocks.length && !gate.warns.length ? '<li class="lv-low"><i class="fa fa-circle-check"></i>Qua mọi chốt chặn</li>' : ''}</ul>
             <h4>Chấm sơ bộ lô</h4><ul>${a.factors.map(f => `<li class="lv-${f.level.toLowerCase()}"><i class="fa ${f.level === 'LOW' ? 'fa-circle-check' : f.level === 'MEDIUM' ? 'fa-triangle-exclamation' : 'fa-circle-xmark'}"></i><b>${esc(f.name)}</b>: ${esc(f.msg)}</li>`).join('')}</ul></div>`;
         const btn = el.querySelector('.modal-footer .btn-primary');
-        if (btn) btn.disabled = !gate.ok;
+        if (btn && !opts.dossier) btn.disabled = !gate.ok;
         const rej = el.querySelector('[data-reject]');
         if (rej) rej.classList.toggle('d-none', gate.ok);
     };
@@ -490,25 +490,25 @@ export const approveDialog = id => decideDialog(id, 'PASS');
 export function page_receipts() {
     startPage('tiep-nhan', {
         title: 'Tiếp nhận nguyên liệu',
-        actions: `<button class="btn btn-sm btn-info text-white" onclick="importContainerModal()"><i class="fa fa-ship me-1"></i>Container nhập khẩu</button>` + newBtn('Tải danh sách', 'showBatchReceipt()') + lightBtn('Nhập tay', 'manualReceipt()', 'fa-pen')
+        actions: `<a class="btn btn-sm btn-light" href="/thu-mua/ho-so"><i class="fa fa-file-shield me-1"></i>Hồ sơ thu mua</a>`
     }, root => {
         const f = recvFilter;
-        const tickets = DB.scaleTickets.filter(t => !t.receiptId && !t.rejected && (!f.scaleDate || t.date === f.scaleDate));
+        const tickets = DB.scaleTickets.filter(t => t.purchase && !t.receiptId && !t.rejected && (!f.scaleDate || t.date === f.scaleDate));
         const rejected = DB.scaleTickets.filter(t => t.rejected);
         const gateOf = t => gateCheck({ ...t, m3: (t.pkgCount || 0) * (t.pkgM3 || 0), species: undefined });
         const code = f.code.trim().toLowerCase();
         const status = r => receiptStatus(r);
         const rows = DB.receipts.filter(r => (f.status === 'ALL' || (f.status === 'WAIT' ? receiptWaiting(r) : status(r) === f.status)) && (!f.source || receiptSource(r) === f.source) && r.date >= f.from && r.date <= f.to && (!code || r.id.toLowerCase().includes(code) || r.plate.toLowerCase().includes(code))).slice().reverse();
-        root.innerHTML = `<section class="panel zone-head-scale"><header class="panel-head"><h2><span class="step-no">4–5</span>Trạm cân → đối soát cổng</h2><label class="d-flex gap-2 align-items-center m-0">Ngày cân <input type="date" class="form-control form-control-sm" value="${esc(f.scaleDate)}" onchange="setRecv('scaleDate',this.value)"></label></header><div class="panel-body p-0">` + table([
+        root.innerHTML = `<section class="panel zone-head-scale"><header class="panel-head"><h2><i class="fa fa-truck me-2"></i>Xe đã xác nhận mua · chờ tiếp nhận</h2><label class="d-flex gap-2 align-items-center m-0">Ngày cân <input type="date" class="form-control form-control-sm" value="${esc(f.scaleDate)}" onchange="setRecv('scaleDate',this.value)"></label></header><div class="panel-body p-0">` + table([
             { title: 'Xe', render: t => `<span class="code">${esc(t.plate)}</span><span class="sub">${esc(t.id)} · ${esc(SOURCE_LABEL[t.sourceCategory] || '')}</span>` },
             { title: 'Nhà cung cấp', render: t => { const s = getSupplier(t.supplierId); return `${esc(supplierName(t.supplierId))}<span class="sub">${esc(kindOf(s))}</span>`; } },
             { title: 'Hợp đồng', render: t => { const c = getContract(t.contractId); return c ? `<span class="code">${esc(c.no)}</span> ${levelPill(assessContract(c, t.date).level)}` : pill('FAIL', 'Chưa có'); } },
             { title: 'KL thực tế', num: true, render: t => `<b>${fmt(t.gross - t.tare, 0)} kg</b><span class="sub">dự kiến ${fmt(t.expectedKg, 0)}</span>` },
             { title: 'Thửa khai', render: t => t.plotIds.map(tag).join('') || pill('FAIL', 'Chưa có') },
             { title: 'Chốt chặn', render: t => { const g = gateOf(t); return g.ok ? pill('PASS', g.warns.length ? `Qua · ${g.warns.length} cảnh báo` : 'Qua') : `${pill('FAIL', 'Bị chặn')}<span class="sub">${esc(g.blocks[0])}</span>`; } },
-            { title: '', render: t => `<button class="btn btn-sm btn-primary" onclick="gateModal('${t.id}')"><i class="fa fa-qrcode me-1"></i>Đối soát</button>` }
-        ], tickets, 'Không có xe chờ đối soát') + `</div></section>
-        <section class="panel zone-head-recv"><header class="panel-head"><h2><span class="step-no">6–8</span>Phiếu tiếp nhận: chấm, ký, xếp kho</h2></header><div class="panel-body">
+            { title: '', render: t => `<button class="btn btn-sm btn-primary btn-icon" title="Đối soát, tiếp nhận" aria-label="Đối soát" onclick="gateModal('${t.id}')"><i class="fa fa-qrcode"></i></button>` }
+        ], tickets, "Chưa có xe nào được xác nhận mua. Xác nhận ở Thu mua › Hồ sơ thu mua.") + `</div></section>
+        <section class="panel zone-head-recv"><header class="panel-head"><h2><i class="fa fa-truck-ramp-box me-2"></i>Phiếu tiếp nhận · KCS, ký, xếp kho</h2></header><div class="panel-body">
             <div class="d-flex flex-wrap gap-1 mb-2">${RECV_STATUS.map(([k, label]) => `<button type="button" class="btn btn-sm ${f.status === k ? 'btn-dark' : 'btn-light'}" onclick="setRecv('status','${k}')">${esc(label)}</button>`).join('')}</div>
             <div class="row g-2 align-items-end">
                 ${field('Nguồn', 'fSource', f.source, { type: 'select', col: 3, options: [['', 'Tất cả'], ...Object.values(SOURCE_LABEL)], attrs: `onchange="setRecv('source',this.value)"` })}
@@ -523,12 +523,9 @@ export function page_receipts() {
             { title: 'Rủi ro', render: r => levelPill(assessReceipt(r).level) },
             { title: 'Còn thiếu', render: r => { const list = nonLow(assessReceipt(r)); return list.length ? list.slice(0, 2).map(x => `<span class="miss lv-${x.level.toLowerCase()}">${esc(x.msg)}</span>`).join('') + (list.length > 2 ? `<span class="sub">+${list.length - 2} mục</span>` : '') : '<span class="text-muted">–</span>'; } },
             { title: 'Kết quả & ô', render: r => `${pill(status(r))}<span class="sub">Ô ${esc(r.bay || '–')} · ${r.done ? esc(DECISION_ACTIONS[(r.decision || {}).action] || 'Đã ký') : r.kcs ? 'Chờ Tuân thủ ký' : 'Chờ KCS'}</span>` },
-            { title: '', render: r => `<div class="d-flex gap-1"><button class="btn btn-sm btn-primary" onclick="showReceipt('${r.id}')"><i class="fa fa-shield-halved me-1"></i>Hồ sơ lô</button><button class="btn btn-sm btn-light btn-icon" title="KCS & chứng từ" aria-label="KCS ${r.id}" onclick="kcsForm('${r.id}')"><i class="fa fa-vial-circle-check"></i></button></div>` }
+            { title: '', render: r => `<div class="d-flex gap-1"><button class="btn btn-sm btn-primary btn-icon" title="Hồ sơ lô" aria-label="Hồ sơ lô" onclick="showReceipt('${r.id}')"><i class="fa fa-shield-halved"></i></button><button class="btn btn-sm btn-light btn-icon" title="KCS & chứng từ" aria-label="KCS ${r.id}" onclick="kcsForm('${r.id}')"><i class="fa fa-vial-circle-check"></i></button></div>` }
         ], rows, 'Không có phiếu phù hợp') + `</div></section>` +
-        (rejected.length ? card(`Xe đã trả hàng tại cổng (${rejected.length})`, table([
-            { title: 'Xe', render: t => `<span class="code">${esc(t.plate)}</span><span class="sub">${esc(t.id)}</span>` }, { title: 'NCC', render: t => esc(supplierName(t.supplierId)) },
-            { title: 'Lý do', render: t => esc(t.rejected.reason) }, { title: 'Lập', render: t => `${esc(t.rejected.by)}<span class="sub">${esc(t.rejected.at)} · báo ${esc(t.rejected.notify)}</span>` }
-        ], rejected), '', 'panel-flush') : '');
+        "";
     });
 }
 

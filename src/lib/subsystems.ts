@@ -1,5 +1,5 @@
-/** Cấu hình menu của 3 phân hệ: Nhà Máy, Bản Đồ, Quản Trị. */
-export type SubsystemId = "factory" | "map" | "admin";
+/** Cấu hình menu của 4 phân hệ: Thu Mua, Nhà Máy, Bản Đồ, Quản Trị. */
+export type SubsystemId = "procure" | "factory" | "map" | "admin";
 
 export interface NavHeader {
   header: string;
@@ -30,20 +30,33 @@ export interface Subsystem {
 }
 
 export const SUBSYSTEMS: Record<SubsystemId, Subsystem> = {
+  procure: {
+    id: "procure",
+    name: "Thu Mua",
+    fullName: "Đánh Giá Rủi Ro Hồ Sơ Tiếp Nhận Thu Mua",
+    icon: "fa-file-shield",
+    badge: "Procurement",
+    defaultUrl: "/thu-mua/ho-so",
+    nav: [
+      { header: "ĐÁNH GIÁ RỦI RO HỒ SƠ" },
+      { key: "tm-ho-so", title: "Hồ sơ thu mua", icon: "fa-file-shield", url: "/thu-mua/ho-so" },
+      { header: "DANH MỤC THU MUA" },
+      { key: "tm-nguon-cung", title: "Nguồn cung & Thương lái", icon: "fa-people-roof", url: "/thu-mua/nguon-cung" },
+      { key: "tm-hop-dong", title: "Hợp đồng mua", icon: "fa-file-signature", url: "/thu-mua/hop-dong" },
+      { key: "tm-lenh-mua", title: "Lệnh mua", icon: "fa-file-invoice", url: "/thu-mua/lenh-mua" },
+    ],
+  },
   factory: {
     id: "factory",
     name: "Nhà Máy",
     fullName: "Phân Hệ Nhà Máy & Chế Biến Gỗ",
     icon: "fa-industry",
     badge: "Factory",
-    defaultUrl: "/nha-may/lenh-mua",
+    defaultUrl: "/nha-may/tiep-nhan",
     nav: [
-      { header: "NGUYÊN LIỆU ĐẦU VÀO" },
-      { key: "hop-dong", title: "1. Nguồn cung & Thương lái", icon: "fa-people-roof", url: "/nha-may/hop-dong-cung-ung" },
-      { key: "hop-dong-mua", title: "2. Hợp đồng mua & hồ sơ", icon: "fa-file-signature", url: "/nha-may/hop-dong-mua" },
-      { key: "lenh-mua", title: "3. Lệnh mua nguyên liệu", icon: "fa-file-invoice", url: "/nha-may/lenh-mua" },
-      { key: "tiep-nhan", title: "4. Tiếp nhận nguyên liệu", icon: "fa-truck-ramp-box", url: "/nha-may/tiep-nhan" },
-      { key: "kho-nguyen-lieu", title: "5. Kho nguyên liệu", icon: "fa-warehouse", url: "/nha-may/kho-nguyen-lieu" },
+      { header: "NGUYÊN LIỆU" },
+      { key: "tiep-nhan", title: "Tiếp nhận", icon: "fa-truck-ramp-box", url: "/nha-may/tiep-nhan" },
+      { key: "kho-nguyen-lieu", title: "Kho nguyên liệu", icon: "fa-warehouse", url: "/nha-may/kho-nguyen-lieu" },
       { header: "SẢN XUẤT" },
       { key: "lenh-san-xuat", title: "Lệnh sản xuất", icon: "fa-clipboard-list", url: "/nha-may/lenh-san-xuat" },
       { key: "nhat-ky-san-xuat", title: "Nhật ký sản xuất", icon: "fa-industry", url: "/nha-may/nhat-ky-san-xuat" },
@@ -106,6 +119,7 @@ export const SUBSYSTEMS: Record<SubsystemId, Subsystem> = {
 
 export function getActiveSubsystem(activeKey: string | null | undefined): SubsystemId {
   if (!activeKey) return "factory";
+  if (activeKey.startsWith("tm-")) return "procure";
   if (activeKey.startsWith("map-") || activeKey === "map") return "map";
   if (activeKey.startsWith("admin-") || activeKey === "admin") return "admin";
   return "factory";

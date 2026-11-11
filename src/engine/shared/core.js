@@ -516,6 +516,24 @@ export function gateCheck(input) {
     return { ok: !blocks.length, blocks, warns };
 }
 
+/**
+ * Chấm một hồ sơ thu mua (chuyến hàng chào bán, trước khi vào nhà máy): chốt chặn + các yếu tố của lô.
+ * Chỉ hồ sơ Đạt mới được xác nhận mua và chuyển sang Nhà máy tiếp nhận.
+ */
+export function assessDossier(t) {
+    const draft = { id: t.id, supplierId: t.supplierId, contractId: t.contractId, plotIds: t.plotIds || [], docs: t.docs || [], species: t.species, sourceCategory: t.sourceCategory, virginPct: t.virginPct, date: t.date, moisture: t.moisture, mitigations: [] };
+    const gate = gateCheck({ ...draft, m3: (t.pkgCount || 0) * (t.pkgM3 || 0) });
+    const a = assessReceipt(draft);
+    const result = !gate.ok || a.level === 'HIGH' ? 'FAIL' : a.level === 'MEDIUM' ? 'PENDING' : 'PASS';
+    const issues = [
+        ...gate.blocks.map(msg => ({ level: 'HIGH', msg })),
+        ...a.factors.filter(f => f.level !== 'LOW').map(f => ({ level: f.level, msg: `${f.name}: ${f.msg}` })),
+        ...gate.warns.map(msg => ({ level: 'NOTE', msg }))
+    ];
+    return { result, level: { PASS: 'LOW', PENDING: 'MEDIUM', FAIL: 'HIGH' }[result], gate, factors: a.factors, issues };
+}
+export const dossierStage = t => t.receiptId ? 'RECEIVED' : t.rejected ? 'REJECTED' : t.purchase ? 'CONFIRMED' : 'REVIEW';
+
 /** Ô kho mặc định khi mới nhận: chấm ra Cao thì cách ly Khu C, còn lại giữ ở Khu B chờ Tuân thủ ký. */
 export function initialBay(r) {
     const zone = assessReceipt(r).level === 'HIGH' ? 'ZONE_C' : 'ZONE_B';

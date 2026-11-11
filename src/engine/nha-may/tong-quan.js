@@ -1,6 +1,6 @@
 import {
     poIsImport,
-} from './lenh-mua.js';
+} from '../thu-mua/lenh-mua.js';
 import {
     DB,
     getPlot,

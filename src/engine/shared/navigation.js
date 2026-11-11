@@ -162,15 +162,18 @@ export function table(columns, rows, emptyText = 'Chưa có dữ liệu') {
 
 /** Năm màn hình của luồng mua nguyên liệu vào, hiện ở đầu mỗi trang để biết đang ở bước nào. */
 export const FLOW_STEPS = [
-    ['Nguồn cung & thương lái', '/nha-may/hop-dong-cung-ung', 'fa-people-roof', 'Đăng ký NCC, danh sách hộ, thửa'],
-    ['Hợp đồng mua & hồ sơ', '/nha-may/hop-dong-mua', 'fa-file-signature', 'Điều khoản EUDR, hồ sơ, bản scan'],
-    ['Lệnh mua', '/nha-may/lenh-mua', 'fa-file-invoice', 'Chỉ theo hợp đồng còn dùng được'],
+    ['Nguồn cung & thương lái', '/thu-mua/nguon-cung', 'fa-people-roof', 'Đăng ký NCC, danh sách hộ, thửa'],
+    ['Hợp đồng mua & hồ sơ', '/thu-mua/hop-dong', 'fa-file-signature', 'Điều khoản EUDR, hồ sơ, bản scan'],
+    ['Lệnh mua', '/thu-mua/lenh-mua', 'fa-file-invoice', 'Chỉ theo hợp đồng còn dùng được'],
     ['Tiếp nhận & đánh giá lô', '/nha-may/tiep-nhan', 'fa-truck-ramp-box', 'Cân, đối soát cổng, chấm, ký'],
     ['Kho A/B/C & sản xuất', '/nha-may/kho-nguyen-lieu', 'fa-warehouse', 'Chỉ Khu A vào lệnh EU']
 ];
 export function flowStrip(active) {
     return `<nav class="flow-strip" aria-label="Luồng mua nguyên liệu vào">${FLOW_STEPS.map(([title, url, icon, note], i) => `<a href="${url}" class="flow-step ${i + 1 === active ? 'active' : i + 1 < active ? 'past' : ''}" ${i + 1 === active ? 'aria-current="step"' : ''}><span class="flow-no">${i + 1}</span><span class="flow-text"><b><i class="fa ${icon} me-1"></i>${esc(title)}</b><small>${esc(note)}</small></span></a>`).join('<i class="fa fa-chevron-right flow-arrow" aria-hidden="true"></i>')}</nav>`;
 }
+
+/** Nút chỉ có biểu tượng; chữ nằm ở title (rê chuột) và aria-label. */
+export const iconBtn = (icon, label, onclick, cls = 'btn-light') => `<button type="button" class="btn btn-sm ${cls} btn-icon" title="${esc(label)}" aria-label="${esc(label)}" onclick="${onclick}"><i class="fa ${icon}"></i></button>`;
 
 /** Nhãn kết quả Đạt / Cần bổ sung / Không đạt theo mức rủi ro. */
 export const LEVEL_TEXT = { LOW: ['PASS', 'Đạt'], MEDIUM: ['MEDIUM', 'Cần bổ sung'], HIGH: ['FAIL', 'Không đạt'] };

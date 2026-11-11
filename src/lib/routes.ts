@@ -3,6 +3,7 @@ export type PageId =
   | "page_purchase_orders"
   | "page_suppliers"
   | "page_contracts"
+  | "page_procure"
   | "page_receipts"
   | "page_warehouse"
   | "page_workorders"
@@ -39,9 +40,10 @@ export interface AppRoute {
 
 export const APP_ROUTES: readonly AppRoute[] = [
   { path: "nha-may", page: "page_factory_dashboard", navKey: "dashboard", title: "Thống kê" },
-  { path: "nha-may/lenh-mua", page: "page_purchase_orders", navKey: "lenh-mua", title: "Lệnh mua nguyên liệu" },
-  { path: "nha-may/hop-dong-cung-ung", page: "page_suppliers", navKey: "hop-dong", title: "Nguồn cung & Thương lái" },
-  { path: "nha-may/hop-dong-mua", page: "page_contracts", navKey: "hop-dong-mua", title: "Hợp đồng mua & hồ sơ" },
+  { path: "thu-mua/lenh-mua", page: "page_purchase_orders", navKey: "tm-lenh-mua", title: "Lệnh mua nguyên liệu" },
+  { path: "thu-mua/ho-so", page: "page_procure", navKey: "tm-ho-so", title: "Đánh giá rủi ro hồ sơ thu mua" },
+  { path: "thu-mua/nguon-cung", page: "page_suppliers", navKey: "tm-nguon-cung", title: "Nguồn cung & Thương lái" },
+  { path: "thu-mua/hop-dong", page: "page_contracts", navKey: "tm-hop-dong", title: "Hợp đồng mua & hồ sơ" },
   { path: "nha-may/tiep-nhan", page: "page_receipts", navKey: "tiep-nhan", title: "Tiếp nhận nguyên liệu" },
   { path: "nha-may/kho-nguyen-lieu", page: "page_warehouse", navKey: "kho-nguyen-lieu", title: "Kho nguyên liệu" },
   { path: "nha-may/lenh-san-xuat", page: "page_workorders", navKey: "lenh-san-xuat", title: "Lệnh sản xuất" },

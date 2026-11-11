@@ -210,8 +210,16 @@ export function buildSeed(pack) {
         { id: 'SC-261105-05', plate: '81C-000.15', workshop: pack.workshops[0], trip: 1, supplierId: 'NCC-VN-006', phone: '0900 000 008', expectedKg: 15000, gross: 29800, tare: 14900, date: '2026-11-05', plotIds: ['PLOT-VN-GL-01'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(0), batchCode: 'KIEN-2611-15' },
         { id: 'SC-261105-06', plate: '74C-000.16', workshop: pack.workshops[0], trip: 1, supplierId: 'NCC-VN-007', phone: '0900 000 009', expectedKg: 13000, gross: 27200, tare: 14300, date: '2026-11-05', plotIds: ['PLOT-VN-QT-02'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(1), batchCode: 'KIEN-2611-16' },
         { id: 'SC-261105-07', plate: '61H-000.17', workshop: pack.workshops[0], trip: 3, supplierId: 'NCC-VN-002', phone: '0900 000 002', expectedKg: 7000, gross: 15400, tare: 8300, date: '2026-11-05', plotIds: ['PLOT-VN-BD-07'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(1), batchCode: 'KIEN-2611-17' },
-        { id: 'SC-261105-08', plate: '70C-000.18', workshop: pack.workshops[1], trip: 1, supplierId: 'NCC-VN-005', phone: '0900 000 005', expectedKg: 10000, gross: 22100, tare: 11800, date: '2026-11-05', plotIds: ['PLOT-VN-TC-04'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(1), batchCode: 'KIEN-2611-18' }
-    ].map(t => ({ contractId: CONTRACT_OF[t.supplierId] || '', pkgCount: 4, pkgM3: 1.6256, ...t }));
+        { id: 'SC-261105-08', plate: '70C-000.18', workshop: pack.workshops[1], trip: 1, supplierId: 'NCC-VN-005', phone: '0900 000 005', expectedKg: 10000, gross: 22100, tare: 11800, date: '2026-11-05', plotIds: ['PLOT-VN-TC-04'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(1), batchCode: 'KIEN-2611-18' },
+        { id: 'SC-261106-09', plate: '60C-000.19', workshop: pack.workshops[0], trip: 1, supplierId: 'NCC-VN-008', phone: '0900 000 010', expectedKg: 6000, gross: 14300, tare: 8100, date: '2026-11-06', plotIds: ['PLOT-VN-DN-05'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(0), batchCode: 'KIEN-2611-19' },
+        { id: 'SC-261106-10', plate: '60C-000.20', workshop: pack.workshops[0], trip: 2, supplierId: 'NCC-VN-004', phone: '0900 000 004', expectedKg: 6500, gross: 14900, tare: 8200, date: '2026-11-06', plotIds: ['PLOT-VN-DN-03'], receiptId: '', sourceCategory: 'DOMESTIC', rawType: inputOf(0), batchCode: 'KIEN-2611-20', docs: ['Hợp đồng mua bán', 'Hóa đơn'] }
+    ].map(t => ({
+        contractId: CONTRACT_OF[t.supplierId] || '', pkgCount: 4, pkgM3: 1.6256,
+        species: (plots.find(p => p.id === t.plotIds[0]) || {}).species || ACACIA,
+        docs: t.sourceCategory === 'IMPORT' ? importDocs : t.sourceCategory === 'DOMESTIC' ? domesticDocs.filter(d => !(t.id === 'SC-261105-06' && d === 'Bảng kê lâm sản')) : [],
+        purchase: t.id === 'SC-261104-01' ? { by: 'Trưởng phòng Thu mua', at: '2026-11-04' } : null,
+        ...t
+    }));
 
     const car = (no, product, list) => ({ id: `XE-${no}`, product, typeCar: 'Container 40HC', plate: `51D-000.0${no}`, seal: `SEAL0${no}`, cont: `TGHU00000${no}`, date: '2026-11-05', kg: list.reduce((s, id) => s + pallets.find(p => p.id === id).kg, 0), timeIn: '08:00', timeOut: '11:30', remark: '', palletIds: list });
     const makeOrder = (id, c, product, ids, status, extra = {}) => {
@@ -359,7 +367,7 @@ export function buildSeed(pack) {
     });
 
     return {
-        version: 18,
+        version: 19,
         industry: pack.id,
         workers,
         attendance,

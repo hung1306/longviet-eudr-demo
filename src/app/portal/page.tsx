@@ -6,7 +6,8 @@ import "./portal.css";
 export const metadata: Metadata = { title: "Chọn phân hệ" };
 
 const MODULES = [
-  { href: "/nha-may/lenh-mua", name: "Nhà Máy", icon: "fa-industry", className: "pxh-factory" },
+  { href: "/thu-mua/ho-so", name: "Thu Mua", icon: "fa-file-shield", className: "pxh-factory" },
+  { href: "/nha-may/tiep-nhan", name: "Nhà Máy", icon: "fa-industry", className: "pxh-factory" },
   { href: "/ban-do/map-tong-quan", name: "Bản Đồ", icon: "fa-map-location-dot", className: "pxh-map" },
   { href: "/quan-tri/admin-dashboard", name: "Quản Trị", icon: "fa-sliders", className: "pxh-admin" },
 ];
